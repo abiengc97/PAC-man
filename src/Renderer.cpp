@@ -1,0 +1,330 @@
+#include "Renderer.h"
+#include "Maze.h"
+#include "Player.h"
+#include "Ghost.h"
+#include <iostream>
+#include <cmath>
+
+// ============================================================
+// Simple 5x7 bitmap font for score/text display
+// Each char is 5 columns, 7 rows, packed into uint8_t[7]
+// ============================================================
+static const uint8_t FONT_0[] = {0x0E,0x11,0x13,0x15,0x19,0x11,0x0E};
+static const uint8_t FONT_1[] = {0x04,0x0C,0x04,0x04,0x04,0x04,0x0E};
+static const uint8_t FONT_2[] = {0x0E,0x11,0x01,0x06,0x08,0x10,0x1F};
+static const uint8_t FONT_3[] = {0x0E,0x11,0x01,0x06,0x01,0x11,0x0E};
+static const uint8_t FONT_4[] = {0x02,0x06,0x0A,0x12,0x1F,0x02,0x02};
+static const uint8_t FONT_5[] = {0x1F,0x10,0x1E,0x01,0x01,0x11,0x0E};
+static const uint8_t FONT_6[] = {0x06,0x08,0x10,0x1E,0x11,0x11,0x0E};
+static const uint8_t FONT_7[] = {0x1F,0x01,0x02,0x04,0x08,0x08,0x08};
+static const uint8_t FONT_8[] = {0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E};
+static const uint8_t FONT_9[] = {0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C};
+
+static const uint8_t FONT_A[] = {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11};
+static const uint8_t FONT_C[] = {0x0E,0x11,0x10,0x10,0x10,0x11,0x0E};
+static const uint8_t FONT_D[] = {0x1C,0x12,0x11,0x11,0x11,0x12,0x1C};
+static const uint8_t FONT_E[] = {0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F};
+static const uint8_t FONT_G[] = {0x0E,0x11,0x10,0x17,0x11,0x11,0x0F};
+static const uint8_t FONT_I[] = {0x0E,0x04,0x04,0x04,0x04,0x04,0x0E};
+static const uint8_t FONT_L[] = {0x10,0x10,0x10,0x10,0x10,0x10,0x1F};
+static const uint8_t FONT_M[] = {0x11,0x1B,0x15,0x15,0x11,0x11,0x11};
+static const uint8_t FONT_O[] = {0x0E,0x11,0x11,0x11,0x11,0x11,0x0E};
+static const uint8_t FONT_P[] = {0x1E,0x11,0x11,0x1E,0x10,0x10,0x10};
+static const uint8_t FONT_R[] = {0x1E,0x11,0x11,0x1E,0x14,0x12,0x11};
+static const uint8_t FONT_S[] = {0x0E,0x11,0x10,0x0E,0x01,0x11,0x0E};
+static const uint8_t FONT_V[] = {0x11,0x11,0x11,0x11,0x11,0x0A,0x04};
+static const uint8_t FONT_Y[] = {0x11,0x11,0x0A,0x04,0x04,0x04,0x04};
+static const uint8_t FONT_SPACE[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+static const uint8_t FONT_COLON[] = {0x00,0x04,0x04,0x00,0x04,0x04,0x00};
+
+static const uint8_t* getGlyph(char c) {
+    switch(c) {
+        case '0': return FONT_0; case '1': return FONT_1; case '2': return FONT_2;
+        case '3': return FONT_3; case '4': return FONT_4; case '5': return FONT_5;
+        case '6': return FONT_6; case '7': return FONT_7; case '8': return FONT_8;
+        case '9': return FONT_9;
+        case 'A': case 'a': return FONT_A;
+        case 'C': case 'c': return FONT_C;
+        case 'D': case 'd': return FONT_D;
+        case 'E': case 'e': return FONT_E;
+        case 'G': case 'g': return FONT_G;
+        case 'I': case 'i': return FONT_I;
+        case 'L': case 'l': return FONT_L;
+        case 'M': case 'm': return FONT_M;
+        case 'O': case 'o': return FONT_O;
+        case 'P': case 'p': return FONT_P;
+        case 'R': case 'r': return FONT_R;
+        case 'S': case 's': return FONT_S;
+        case 'V': case 'v': return FONT_V;
+        case 'Y': case 'y': return FONT_Y;
+        case ':': return FONT_COLON;
+        default:  return FONT_SPACE;
+    }
+}
+
+// ============================================================
+// Renderer Implementation
+// ============================================================
+
+Renderer::Renderer() {}
+
+Renderer::~Renderer() {
+    shutdown();
+}
+
+bool Renderer::init(const std::string& title, int width, int height) {
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+        std::cerr << "SDL_Init failed: " << SDL_GetError() << std::endl;
+        return false;
+    }
+
+    m_window = SDL_CreateWindow(
+        title.c_str(),
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        width, height,
+        SDL_WINDOW_SHOWN
+    );
+    if (!m_window) {
+        std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << std::endl;
+        return false;
+    }
+
+    m_renderer = SDL_CreateRenderer(m_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!m_renderer) {
+        std::cerr << "SDL_CreateRenderer failed: " << SDL_GetError() << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+void Renderer::shutdown() {
+    if (m_renderer) { SDL_DestroyRenderer(m_renderer); m_renderer = nullptr; }
+    if (m_window)   { SDL_DestroyWindow(m_window);     m_window   = nullptr; }
+    SDL_Quit();
+}
+
+void Renderer::clear() {
+    SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 255);
+    SDL_RenderClear(m_renderer);
+}
+
+void Renderer::present() {
+    SDL_RenderPresent(m_renderer);
+}
+
+void Renderer::drawMaze(const Maze& maze) {
+    const auto& grid = maze.getGrid();
+
+    for (int r = 0; r < maze.getRows(); ++r) {
+        for (int c = 0; c < maze.getCols(); ++c) {
+            int x = c * TILE_SIZE;
+            int y = r * TILE_SIZE;
+
+            switch (grid[r][c]) {
+                case TileType::WALL:
+                    drawRect(x, y, TILE_SIZE, TILE_SIZE, {33, 33, 222, 255}); // blue walls
+                    // Inner darker rectangle for depth
+                    drawRect(x+2, y+2, TILE_SIZE-4, TILE_SIZE-4, {20, 20, 170, 255});
+                    break;
+
+                case TileType::PELLET:
+                    drawCircle(x + TILE_SIZE/2, y + TILE_SIZE/2, 2, {255, 183, 174, 255}); // small dot
+                    break;
+
+                case TileType::POWER:
+                    drawCircle(x + TILE_SIZE/2, y + TILE_SIZE/2, 6, {255, 183, 174, 255}); // big dot
+                    break;
+
+                case TileType::GHOST_DOOR:
+                    drawRect(x, y + TILE_SIZE/2 - 2, TILE_SIZE, 4, {255, 183, 255, 255}); // pink door
+                    break;
+
+                default:
+                    break; // empty, tunnel, ghost house — black background
+            }
+        }
+    }
+}
+
+void Renderer::drawPlayer(const Player& player) {
+    if (!player.isAlive()) return;
+
+    int cx = player.getPixelX();
+    int cy = player.getPixelY();
+    int radius = TILE_SIZE / 2 - 2;
+
+    // Yellow circle for Pac-Man
+    SDL_Color yellow = {255, 255, 0, 255};
+    drawCircle(cx, cy, radius, yellow);
+
+    // Draw mouth based on direction and animation
+    SDL_Color black = {0, 0, 0, 255};
+    int frame = player.getAnimFrame();
+    int mouthSize = (frame % 2 == 0) ? radius / 2 : radius / 4;
+
+    Direction dir = player.getDirection();
+    if (dir == Direction::NONE) dir = Direction::RIGHT;
+
+    // Simple mouth as a triangle-ish wedge using black rectangles
+    switch (dir) {
+        case Direction::RIGHT:
+            for (int i = 0; i < mouthSize; i++) {
+                drawRect(cx + radius - i, cy - i, i + 1, 1, black);
+                drawRect(cx + radius - i, cy + i, i + 1, 1, black);
+            }
+            break;
+        case Direction::LEFT:
+            for (int i = 0; i < mouthSize; i++) {
+                drawRect(cx - radius, cy - i, i + 1, 1, black);
+                drawRect(cx - radius, cy + i, i + 1, 1, black);
+            }
+            break;
+        case Direction::UP:
+            for (int i = 0; i < mouthSize; i++) {
+                drawRect(cx - i, cy - radius, 1, i + 1, black);
+                drawRect(cx + i, cy - radius, 1, i + 1, black);
+            }
+            break;
+        case Direction::DOWN:
+            for (int i = 0; i < mouthSize; i++) {
+                drawRect(cx - i, cy + radius - i, 1, i + 1, black);
+                drawRect(cx + i, cy + radius - i, 1, i + 1, black);
+            }
+            break;
+        default: break;
+    }
+}
+
+void Renderer::drawGhost(const Ghost& ghost) {
+    if (ghost.isInHouse() && ghost.getMode() != GhostMode::EATEN) {
+        // Still in house — draw dimmed
+    }
+
+    int cx = ghost.getPixelX();
+    int cy = ghost.getPixelY();
+    int radius = TILE_SIZE / 2 - 2;
+
+    SDL_Color color;
+    if (ghost.getMode() == GhostMode::FRIGHTENED) {
+        color = {33, 33, 255, 255}; // dark blue when frightened
+    } else if (ghost.getMode() == GhostMode::EATEN) {
+        color = {200, 200, 200, 80}; // faint — just eyes
+    } else {
+        color = getGhostColor(ghost.getID());
+    }
+
+    // Ghost body: circle top + rectangle bottom
+    drawCircle(cx, cy - 2, radius, color);
+    drawRect(cx - radius, cy - 2, radius * 2 + 1, radius, color);
+
+    // Wavy bottom edge
+    for (int i = 0; i < 3; i++) {
+        int bx = cx - radius + i * (radius * 2 / 3);
+        drawRect(bx, cy + radius - 4, radius * 2 / 3, 3, {0, 0, 0, 255});
+    }
+
+    // Eyes
+    SDL_Color white = {255, 255, 255, 255};
+    SDL_Color eyeBlue = {33, 33, 222, 255};
+
+    // Left eye
+    drawCircle(cx - 4, cy - 3, 3, white);
+    // Right eye
+    drawCircle(cx + 4, cy - 3, 3, white);
+
+    // Pupils — shift based on direction
+    int pdx = 0, pdy = 0;
+    switch (ghost.getDirection()) {
+        case Direction::LEFT:  pdx = -1; break;
+        case Direction::RIGHT: pdx =  1; break;
+        case Direction::UP:    pdy = -1; break;
+        case Direction::DOWN:  pdy =  1; break;
+        default: break;
+    }
+    drawCircle(cx - 4 + pdx, cy - 3 + pdy, 1, eyeBlue);
+    drawCircle(cx + 4 + pdx, cy - 3 + pdy, 1, eyeBlue);
+}
+
+SDL_Color Renderer::getGhostColor(GhostID id) const {
+    switch (id) {
+        case GhostID::BLINKY: return {255, 0, 0, 255};       // red
+        case GhostID::PINKY:  return {255, 184, 255, 255};   // pink
+        case GhostID::INKY:   return {0, 255, 255, 255};     // cyan
+        case GhostID::CLYDE:  return {255, 184, 82, 255};    // orange
+    }
+    return {255, 255, 255, 255};
+}
+
+void Renderer::drawHUD(int score, int lives, int level) {
+    int hudY = MAZE_ROWS * TILE_SIZE + 4;
+    SDL_Color white = {255, 255, 255, 255};
+    SDL_Color yellow = {255, 255, 0, 255};
+
+    // Score
+    drawString(8, hudY, "SCORE:" + std::to_string(score), white, 2);
+
+    // Lives (draw Pac-Man icons)
+    for (int i = 0; i < lives; i++) {
+        drawCircle(SCREEN_W - 30 - i * 28, hudY + 10, 8, yellow);
+    }
+
+    // Level
+    drawString(SCREEN_W / 2 - 40, hudY, "LV:" + std::to_string(level), white, 2);
+}
+
+void Renderer::drawGameOver(int finalScore) {
+    SDL_Color red = {255, 0, 0, 255};
+    SDL_Color white = {255, 255, 255, 255};
+
+    drawString(SCREEN_W / 2 - 60, SCREEN_H / 2 - 20, "GAME OVER", red, 3);
+    drawString(SCREEN_W / 2 - 50, SCREEN_H / 2 + 20, "SCORE:" + std::to_string(finalScore), white, 2);
+}
+
+void Renderer::drawReady() {
+    SDL_Color yellow = {255, 255, 0, 255};
+    drawString(SCREEN_W / 2 - 36, SCREEN_H / 2, "READY", yellow, 3);
+}
+
+// ============================================================
+// Drawing Helpers
+// ============================================================
+
+void Renderer::drawRect(int x, int y, int w, int h, SDL_Color color) {
+    SDL_SetRenderDrawColor(m_renderer, color.r, color.g, color.b, color.a);
+    SDL_Rect rect = {x, y, w, h};
+    SDL_RenderFillRect(m_renderer, &rect);
+}
+
+void Renderer::drawCircle(int cx, int cy, int radius, SDL_Color color) {
+    SDL_SetRenderDrawColor(m_renderer, color.r, color.g, color.b, color.a);
+    for (int dy = -radius; dy <= radius; dy++) {
+        for (int dx = -radius; dx <= radius; dx++) {
+            if (dx*dx + dy*dy <= radius*radius) {
+                SDL_RenderDrawPoint(m_renderer, cx + dx, cy + dy);
+            }
+        }
+    }
+}
+
+void Renderer::drawChar(int x, int y, char c, SDL_Color color, int scale) {
+    const uint8_t* glyph = getGlyph(c);
+    SDL_SetRenderDrawColor(m_renderer, color.r, color.g, color.b, color.a);
+
+    for (int row = 0; row < 7; row++) {
+        for (int col = 0; col < 5; col++) {
+            if (glyph[row] & (0x10 >> col)) {
+                SDL_Rect pixel = {x + col * scale, y + row * scale, scale, scale};
+                SDL_RenderFillRect(m_renderer, &pixel);
+            }
+        }
+    }
+}
+
+void Renderer::drawString(int x, int y, const std::string& text, SDL_Color color, int scale) {
+    int cx = x;
+    for (char c : text) {
+        drawChar(cx, y, c, color, scale);
+        cx += 6 * scale; // 5 pixels + 1 gap
+    }
+}
