@@ -21,17 +21,21 @@ bool Game::init() {
         return false;
     }
 
-    if (!m_maze.loadFromFile("levels/level1.txt")) {
+    startLevel();
+
+    if (m_maze.getTotalPellets() == 0) {
         std::cerr << "Failed to load maze!" << std::endl;
         return false;
     }
 
-    startLevel();
     return true;
 }
 
 void Game::startLevel() {
-    m_maze.resetPellets();
+    std::string levelFile = "levels/level" + std::to_string(m_level) + ".txt";
+    if (!m_maze.loadFromFile(levelFile)) {
+        m_maze.loadFromFile("levels/level1.txt");
+    }
     m_player.init(m_maze.getPacManSpawn());
 
     for (auto& ghost : m_ghosts) {
