@@ -82,6 +82,7 @@ CMakeFiles/pacman.dir/src/AStar.cpp.o: ../src/AStar.cpp \
   /usr/include/x86_64-linux-gnu/bits/types/FILE.h \
   /usr/include/x86_64-linux-gnu/bits/types/locale_t.h \
   /usr/include/x86_64-linux-gnu/bits/types/__locale_t.h \
+  /usr/include/x86_64-linux-gnu/bits/wchar2.h \
   /usr/include/c++/11/bits/localefwd.h \
   /usr/include/x86_64-linux-gnu/c++/11/bits/c++locale.h \
   /usr/include/c++/11/clocale \
@@ -142,8 +143,11 @@ CMakeFiles/pacman.dir/src/AStar.cpp.o: ../src/AStar.cpp \
   /usr/include/x86_64-linux-gnu/sys/select.h \
   /usr/include/x86_64-linux-gnu/bits/select.h \
   /usr/include/x86_64-linux-gnu/bits/types/sigset_t.h \
+  /usr/include/x86_64-linux-gnu/bits/select2.h \
   /usr/include/alloca.h \
+  /usr/include/x86_64-linux-gnu/bits/stdlib-bsearch.h \
   /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
+  /usr/include/x86_64-linux-gnu/bits/stdlib.h \
   /usr/include/c++/11/bits/std_abs.h \
   /usr/include/c++/11/cstdio \
   /usr/include/stdio.h \
@@ -152,6 +156,8 @@ CMakeFiles/pacman.dir/src/AStar.cpp.o: ../src/AStar.cpp \
   /usr/include/x86_64-linux-gnu/bits/types/struct_FILE.h \
   /usr/include/x86_64-linux-gnu/bits/types/cookie_io_functions_t.h \
   /usr/include/x86_64-linux-gnu/bits/stdio_lim.h \
+  /usr/include/x86_64-linux-gnu/bits/stdio.h \
+  /usr/include/x86_64-linux-gnu/bits/stdio2.h \
   /usr/include/c++/11/cerrno \
   /usr/include/errno.h \
   /usr/include/x86_64-linux-gnu/bits/errno.h \
@@ -282,6 +288,7 @@ CMakeFiles/pacman.dir/src/Game.cpp.o: ../src/Game.cpp \
   /usr/include/x86_64-linux-gnu/bits/types/FILE.h \
   /usr/include/x86_64-linux-gnu/bits/types/locale_t.h \
   /usr/include/x86_64-linux-gnu/bits/types/__locale_t.h \
+  /usr/include/x86_64-linux-gnu/bits/wchar2.h \
   /usr/include/c++/11/bits/allocator.h \
   /usr/include/x86_64-linux-gnu/c++/11/bits/c++allocator.h \
   /usr/include/c++/11/ext/new_allocator.h \
@@ -353,8 +360,11 @@ CMakeFiles/pacman.dir/src/Game.cpp.o: ../src/Game.cpp \
   /usr/include/x86_64-linux-gnu/sys/select.h \
   /usr/include/x86_64-linux-gnu/bits/select.h \
   /usr/include/x86_64-linux-gnu/bits/types/sigset_t.h \
+  /usr/include/x86_64-linux-gnu/bits/select2.h \
   /usr/include/alloca.h \
+  /usr/include/x86_64-linux-gnu/bits/stdlib-bsearch.h \
   /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
+  /usr/include/x86_64-linux-gnu/bits/stdlib.h \
   /usr/include/c++/11/bits/std_abs.h \
   /usr/include/c++/11/cstdio \
   /usr/include/stdio.h \
@@ -363,6 +373,8 @@ CMakeFiles/pacman.dir/src/Game.cpp.o: ../src/Game.cpp \
   /usr/include/x86_64-linux-gnu/bits/types/struct_FILE.h \
   /usr/include/x86_64-linux-gnu/bits/types/cookie_io_functions_t.h \
   /usr/include/x86_64-linux-gnu/bits/stdio_lim.h \
+  /usr/include/x86_64-linux-gnu/bits/stdio.h \
+  /usr/include/x86_64-linux-gnu/bits/stdio2.h \
   /usr/include/c++/11/cerrno \
   /usr/include/errno.h \
   /usr/include/x86_64-linux-gnu/bits/errno.h \
@@ -392,6 +404,8 @@ CMakeFiles/pacman.dir/src/Game.cpp.o: ../src/Game.cpp \
   /usr/include/c++/11/stdlib.h \
   /usr/include/string.h \
   /usr/include/strings.h \
+  /usr/include/x86_64-linux-gnu/bits/strings_fortified.h \
+  /usr/include/x86_64-linux-gnu/bits/string_fortified.h \
   /usr/include/inttypes.h \
   /usr/include/c++/11/math.h \
   /usr/include/c++/11/cmath \
@@ -660,6 +674,7 @@ CMakeFiles/pacman.dir/src/Ghost.cpp.o: ../src/Ghost.cpp \
   /usr/include/x86_64-linux-gnu/bits/types/FILE.h \
   /usr/include/x86_64-linux-gnu/bits/types/locale_t.h \
   /usr/include/x86_64-linux-gnu/bits/types/__locale_t.h \
+  /usr/include/x86_64-linux-gnu/bits/wchar2.h \
   /usr/include/c++/11/bits/localefwd.h \
   /usr/include/x86_64-linux-gnu/c++/11/bits/c++locale.h \
   /usr/include/c++/11/clocale \
@@ -720,8 +735,11 @@ CMakeFiles/pacman.dir/src/Ghost.cpp.o: ../src/Ghost.cpp \
   /usr/include/x86_64-linux-gnu/sys/select.h \
   /usr/include/x86_64-linux-gnu/bits/select.h \
   /usr/include/x86_64-linux-gnu/bits/types/sigset_t.h \
+  /usr/include/x86_64-linux-gnu/bits/select2.h \
   /usr/include/alloca.h \
+  /usr/include/x86_64-linux-gnu/bits/stdlib-bsearch.h \
   /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
+  /usr/include/x86_64-linux-gnu/bits/stdlib.h \
   /usr/include/c++/11/bits/std_abs.h \
   /usr/include/c++/11/cstdio \
   /usr/include/stdio.h \
@@ -730,6 +748,8 @@ CMakeFiles/pacman.dir/src/Ghost.cpp.o: ../src/Ghost.cpp \
   /usr/include/x86_64-linux-gnu/bits/types/struct_FILE.h \
   /usr/include/x86_64-linux-gnu/bits/types/cookie_io_functions_t.h \
   /usr/include/x86_64-linux-gnu/bits/stdio_lim.h \
+  /usr/include/x86_64-linux-gnu/bits/stdio.h \
+  /usr/include/x86_64-linux-gnu/bits/stdio2.h \
   /usr/include/c++/11/cerrno \
   /usr/include/errno.h \
   /usr/include/x86_64-linux-gnu/bits/errno.h \
@@ -832,6 +852,7 @@ CMakeFiles/pacman.dir/src/Maze.cpp.o: ../src/Maze.cpp \
   /usr/include/x86_64-linux-gnu/bits/types/FILE.h \
   /usr/include/x86_64-linux-gnu/bits/types/locale_t.h \
   /usr/include/x86_64-linux-gnu/bits/types/__locale_t.h \
+  /usr/include/x86_64-linux-gnu/bits/wchar2.h \
   /usr/include/c++/11/bits/allocator.h \
   /usr/include/x86_64-linux-gnu/c++/11/bits/c++allocator.h \
   /usr/include/c++/11/ext/new_allocator.h \
@@ -903,8 +924,11 @@ CMakeFiles/pacman.dir/src/Maze.cpp.o: ../src/Maze.cpp \
   /usr/include/x86_64-linux-gnu/sys/select.h \
   /usr/include/x86_64-linux-gnu/bits/select.h \
   /usr/include/x86_64-linux-gnu/bits/types/sigset_t.h \
+  /usr/include/x86_64-linux-gnu/bits/select2.h \
   /usr/include/alloca.h \
+  /usr/include/x86_64-linux-gnu/bits/stdlib-bsearch.h \
   /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
+  /usr/include/x86_64-linux-gnu/bits/stdlib.h \
   /usr/include/c++/11/bits/std_abs.h \
   /usr/include/c++/11/cstdio \
   /usr/include/stdio.h \
@@ -913,6 +937,8 @@ CMakeFiles/pacman.dir/src/Maze.cpp.o: ../src/Maze.cpp \
   /usr/include/x86_64-linux-gnu/bits/types/struct_FILE.h \
   /usr/include/x86_64-linux-gnu/bits/types/cookie_io_functions_t.h \
   /usr/include/x86_64-linux-gnu/bits/stdio_lim.h \
+  /usr/include/x86_64-linux-gnu/bits/stdio.h \
+  /usr/include/x86_64-linux-gnu/bits/stdio2.h \
   /usr/include/c++/11/cerrno \
   /usr/include/errno.h \
   /usr/include/x86_64-linux-gnu/bits/errno.h \
@@ -1030,6 +1056,7 @@ CMakeFiles/pacman.dir/src/Player.cpp.o: ../src/Player.cpp \
   /usr/include/x86_64-linux-gnu/bits/types/FILE.h \
   /usr/include/x86_64-linux-gnu/bits/types/locale_t.h \
   /usr/include/x86_64-linux-gnu/bits/types/__locale_t.h \
+  /usr/include/x86_64-linux-gnu/bits/wchar2.h \
   /usr/include/c++/11/bits/allocator.h \
   /usr/include/x86_64-linux-gnu/c++/11/bits/c++allocator.h \
   /usr/include/c++/11/ext/new_allocator.h \
@@ -1101,8 +1128,11 @@ CMakeFiles/pacman.dir/src/Player.cpp.o: ../src/Player.cpp \
   /usr/include/x86_64-linux-gnu/sys/select.h \
   /usr/include/x86_64-linux-gnu/bits/select.h \
   /usr/include/x86_64-linux-gnu/bits/types/sigset_t.h \
+  /usr/include/x86_64-linux-gnu/bits/select2.h \
   /usr/include/alloca.h \
+  /usr/include/x86_64-linux-gnu/bits/stdlib-bsearch.h \
   /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
+  /usr/include/x86_64-linux-gnu/bits/stdlib.h \
   /usr/include/c++/11/bits/std_abs.h \
   /usr/include/c++/11/cstdio \
   /usr/include/stdio.h \
@@ -1111,6 +1141,8 @@ CMakeFiles/pacman.dir/src/Player.cpp.o: ../src/Player.cpp \
   /usr/include/x86_64-linux-gnu/bits/types/struct_FILE.h \
   /usr/include/x86_64-linux-gnu/bits/types/cookie_io_functions_t.h \
   /usr/include/x86_64-linux-gnu/bits/stdio_lim.h \
+  /usr/include/x86_64-linux-gnu/bits/stdio.h \
+  /usr/include/x86_64-linux-gnu/bits/stdio2.h \
   /usr/include/c++/11/cerrno \
   /usr/include/errno.h \
   /usr/include/x86_64-linux-gnu/bits/errno.h \
@@ -1184,6 +1216,7 @@ CMakeFiles/pacman.dir/src/Renderer.cpp.o: ../src/Renderer.cpp \
   /usr/include/x86_64-linux-gnu/bits/types/__sigset_t.h \
   /usr/include/x86_64-linux-gnu/bits/types/struct_timeval.h \
   /usr/include/x86_64-linux-gnu/bits/types/struct_timespec.h \
+  /usr/include/x86_64-linux-gnu/bits/select2.h \
   /usr/include/x86_64-linux-gnu/bits/pthreadtypes.h \
   /usr/include/x86_64-linux-gnu/bits/thread-shared-types.h \
   /usr/include/x86_64-linux-gnu/bits/pthreadtypes-arch.h \
@@ -1202,6 +1235,8 @@ CMakeFiles/pacman.dir/src/Renderer.cpp.o: ../src/Renderer.cpp \
   /usr/include/x86_64-linux-gnu/bits/stdio_lim.h \
   /usr/include/x86_64-linux-gnu/bits/floatn.h \
   /usr/include/x86_64-linux-gnu/bits/floatn-common.h \
+  /usr/include/x86_64-linux-gnu/bits/stdio.h \
+  /usr/include/x86_64-linux-gnu/bits/stdio2.h \
   /usr/include/c++/11/stdlib.h \
   /usr/include/c++/11/cstdlib \
   /usr/include/stdlib.h \
@@ -1210,13 +1245,18 @@ CMakeFiles/pacman.dir/src/Renderer.cpp.o: ../src/Renderer.cpp \
   /usr/include/x86_64-linux-gnu/bits/types/locale_t.h \
   /usr/include/x86_64-linux-gnu/bits/types/__locale_t.h \
   /usr/include/alloca.h \
+  /usr/include/x86_64-linux-gnu/bits/stdlib-bsearch.h \
   /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
+  /usr/include/x86_64-linux-gnu/bits/stdlib.h \
   /usr/include/c++/11/bits/std_abs.h \
   /usr/include/string.h \
   /usr/include/strings.h \
+  /usr/include/x86_64-linux-gnu/bits/strings_fortified.h \
+  /usr/include/x86_64-linux-gnu/bits/string_fortified.h \
   /usr/include/wchar.h \
   /usr/include/x86_64-linux-gnu/bits/types/wint_t.h \
   /usr/include/x86_64-linux-gnu/bits/types/mbstate_t.h \
+  /usr/include/x86_64-linux-gnu/bits/wchar2.h \
   /usr/include/inttypes.h \
   /usr/include/ctype.h \
   /usr/include/c++/11/math.h \
@@ -1551,6 +1591,7 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
   /usr/include/x86_64-linux-gnu/bits/types/FILE.h \
   /usr/include/x86_64-linux-gnu/bits/types/locale_t.h \
   /usr/include/x86_64-linux-gnu/bits/types/__locale_t.h \
+  /usr/include/x86_64-linux-gnu/bits/wchar2.h \
   /usr/include/c++/11/bits/allocator.h \
   /usr/include/x86_64-linux-gnu/c++/11/bits/c++allocator.h \
   /usr/include/c++/11/ext/new_allocator.h \
@@ -1622,8 +1663,11 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
   /usr/include/x86_64-linux-gnu/sys/select.h \
   /usr/include/x86_64-linux-gnu/bits/select.h \
   /usr/include/x86_64-linux-gnu/bits/types/sigset_t.h \
+  /usr/include/x86_64-linux-gnu/bits/select2.h \
   /usr/include/alloca.h \
+  /usr/include/x86_64-linux-gnu/bits/stdlib-bsearch.h \
   /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
+  /usr/include/x86_64-linux-gnu/bits/stdlib.h \
   /usr/include/c++/11/bits/std_abs.h \
   /usr/include/c++/11/cstdio \
   /usr/include/stdio.h \
@@ -1632,6 +1676,8 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
   /usr/include/x86_64-linux-gnu/bits/types/struct_FILE.h \
   /usr/include/x86_64-linux-gnu/bits/types/cookie_io_functions_t.h \
   /usr/include/x86_64-linux-gnu/bits/stdio_lim.h \
+  /usr/include/x86_64-linux-gnu/bits/stdio.h \
+  /usr/include/x86_64-linux-gnu/bits/stdio2.h \
   /usr/include/c++/11/cerrno \
   /usr/include/errno.h \
   /usr/include/x86_64-linux-gnu/bits/errno.h \
@@ -1661,6 +1707,8 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
   /usr/include/c++/11/stdlib.h \
   /usr/include/string.h \
   /usr/include/strings.h \
+  /usr/include/x86_64-linux-gnu/bits/strings_fortified.h \
+  /usr/include/x86_64-linux-gnu/bits/string_fortified.h \
   /usr/include/inttypes.h \
   /usr/include/c++/11/math.h \
   /usr/include/c++/11/cmath \
@@ -1898,8 +1946,6 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 
 /usr/include/SDL2/SDL_render.h:
 
-/usr/include/SDL2/SDL_metal.h:
-
 /usr/include/SDL2/SDL_messagebox.h:
 
 /usr/include/SDL2/SDL_haptic.h:
@@ -2046,6 +2092,20 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 
 /usr/lib/gcc/x86_64-linux-gnu/11/include/lzcntintrin.h:
 
+/usr/lib/gcc/x86_64-linux-gnu/11/include/enqcmdintrin.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/11/include/clzerointrin.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/11/include/clflushoptintrin.h:
+
+/usr/include/c++/11/system_error:
+
+/usr/lib/gcc/x86_64-linux-gnu/11/include/mm_malloc.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/11/include/cetintrin.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/11/include/bmi2intrin.h:
+
 /usr/include/x86_64-linux-gnu/bits/types/__fpos64_t.h:
 
 /usr/include/x86_64-linux-gnu/bits/struct_rwlock.h:
@@ -2059,6 +2119,10 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 /usr/include/SDL2/SDL_gamecontroller.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/timer_t.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/11/include/cldemoteintrin.h:
+
+/usr/include/SDL2/SDL_platform.h:
 
 /usr/include/c++/11/ext/atomicity.h:
 
@@ -2088,6 +2152,18 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 
 /usr/include/x86_64-linux-gnu/bits/endian.h:
 
+/usr/lib/gcc/x86_64-linux-gnu/11/include/fxsrintrin.h:
+
+/usr/include/c++/11/bits/cxxabi_forced.h:
+
+/usr/include/x86_64-linux-gnu/bits/locale.h:
+
+/usr/include/locale.h:
+
+/usr/include/x86_64-linux-gnu/bits/pthreadtypes-arch.h:
+
+/usr/include/c++/11/bits/localefwd.h:
+
 /usr/include/c++/11/backward/binders.h:
 
 /usr/include/x86_64-linux-gnu/bits/time.h:
@@ -2098,13 +2174,7 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 
 /usr/include/c++/11/algorithm:
 
-/usr/include/x86_64-linux-gnu/bits/locale.h:
-
-/usr/include/locale.h:
-
-/usr/include/x86_64-linux-gnu/bits/pthreadtypes-arch.h:
-
-/usr/include/c++/11/bits/localefwd.h:
+/usr/include/c++/11/bits/specfun.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/__locale_t.h:
 
@@ -2122,6 +2192,8 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 
 /usr/include/x86_64-linux-gnu/bits/types/mbstate_t.h:
 
+/usr/include/x86_64-linux-gnu/bits/strings_fortified.h:
+
 /usr/include/x86_64-linux-gnu/bits/types/wint_t.h:
 
 /usr/include/x86_64-linux-gnu/bits/floatn-common.h:
@@ -2135,8 +2207,6 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 /usr/include/c++/11/bits/basic_ios.h:
 
 /usr/include/c++/11/bits/uniform_int_dist.h:
-
-/usr/include/c++/11/cwchar:
 
 /usr/lib/gcc/x86_64-linux-gnu/11/include/stdint.h:
 
@@ -2156,8 +2226,6 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 
 /usr/include/c++/11/tr1/special_function_util.h:
 
-/usr/include/c++/11/pstl/pstl_config.h:
-
 /usr/include/c++/11/bits/char_traits.h:
 
 /usr/include/asm-generic/errno-base.h:
@@ -2168,7 +2236,9 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 
 /usr/include/c++/11/pstl/glue_algorithm_defs.h:
 
-/usr/include/c++/11/bits/specfun.h:
+/usr/lib/gcc/x86_64-linux-gnu/11/include/clwbintrin.h:
+
+/usr/include/c++/11/string:
 
 /usr/include/c++/11/bits/string_view.tcc:
 
@@ -2208,10 +2278,6 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 
 /usr/include/x86_64-linux-gnu/bits/types/clock_t.h:
 
-/usr/include/c++/11/bits/std_function.h:
-
-/usr/include/c++/11/bits/stl_tempbuf.h:
-
 /usr/include/x86_64-linux-gnu/bits/atomic_wide_counter.h:
 
 /usr/include/c++/11/bits/hash_bytes.h:
@@ -2226,6 +2292,12 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 
 /usr/include/x86_64-linux-gnu/bits/types/__sigset_t.h:
 
+/usr/include/c++/11/pstl/pstl_config.h:
+
+/usr/include/c++/11/bits/stl_tempbuf.h:
+
+/usr/include/c++/11/bits/std_function.h:
+
 /usr/lib/gcc/x86_64-linux-gnu/11/include/amxint8intrin.h:
 
 /usr/include/x86_64-linux-gnu/bits/long-double.h:
@@ -2235,12 +2307,6 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 /usr/include/x86_64-linux-gnu/bits/libc-header-start.h:
 
 ../include/Common.h:
-
-/usr/include/x86_64-linux-gnu/bits/types/struct___jmp_buf_tag.h:
-
-/usr/include/x86_64-linux-gnu/bits/types/clockid_t.h:
-
-/usr/include/c++/11/bits/stl_bvector.h:
 
 /usr/include/SDL2/SDL_version.h:
 
@@ -2255,12 +2321,6 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 /usr/include/c++/11/bits/stl_construct.h:
 
 /usr/include/c++/11/tr1/exp_integral.tcc:
-
-/usr/include/c++/11/system_error:
-
-/usr/lib/gcc/x86_64-linux-gnu/11/include/mm_malloc.h:
-
-/usr/lib/gcc/x86_64-linux-gnu/11/include/cetintrin.h:
 
 /usr/lib/gcc/x86_64-linux-gnu/11/include/tmmintrin.h:
 
@@ -2277,6 +2337,10 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 /usr/lib/gcc/x86_64-linux-gnu/11/include/vpclmulqdqintrin.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/struct_timeval.h:
+
+/usr/include/SDL2/SDL_metal.h:
+
+/usr/include/x86_64-linux-gnu/bits/stdlib.h:
 
 /usr/include/x86_64-linux-gnu/asm/errno.h:
 
@@ -2325,6 +2389,8 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 /usr/include/c++/11/type_traits:
 
 /usr/include/c++/11/tuple:
+
+/usr/include/x86_64-linux-gnu/bits/string_fortified.h:
 
 /usr/include/x86_64-linux-gnu/c++/11/bits/c++locale.h:
 
@@ -2426,17 +2492,9 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 
 /usr/include/c++/11/math.h:
 
-/usr/lib/gcc/x86_64-linux-gnu/11/include/enqcmdintrin.h:
-
-/usr/include/c++/11/bits/cxxabi_forced.h:
-
-/usr/lib/gcc/x86_64-linux-gnu/11/include/fxsrintrin.h:
-
 /usr/include/x86_64-linux-gnu/c++/11/bits/ctype_base.h:
 
 /usr/include/SDL2/SDL_main.h:
-
-/usr/lib/gcc/x86_64-linux-gnu/11/include/clflushoptintrin.h:
 
 /usr/include/x86_64-linux-gnu/sys/types.h:
 
@@ -2450,13 +2508,35 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 
 /usr/include/x86_64-linux-gnu/bits/stdlib-float.h:
 
+/usr/include/c++/11/cwchar:
+
+/usr/include/x86_64-linux-gnu/bits/select2.h:
+
 /usr/lib/gcc/x86_64-linux-gnu/11/include/avx512ifmavlintrin.h:
 
 /usr/include/alloca.h:
 
+/usr/include/x86_64-linux-gnu/bits/types/struct___jmp_buf_tag.h:
+
+/usr/include/x86_64-linux-gnu/bits/types/clockid_t.h:
+
+/usr/include/c++/11/bits/stl_bvector.h:
+
+/usr/include/x86_64-linux-gnu/bits/stdlib-bsearch.h:
+
 /usr/include/c++/11/cstdio:
 
 /usr/include/stdio.h:
+
+/usr/include/x86_64-linux-gnu/bits/stdio.h:
+
+../include/Ghost.h:
+
+/usr/include/c++/11/bits/streambuf.tcc:
+
+/usr/include/string.h:
+
+/usr/include/x86_64-linux-gnu/bits/stdio2.h:
 
 /usr/include/x86_64-linux-gnu/bits/types/cookie_io_functions_t.h:
 
@@ -2506,12 +2586,6 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 
 /usr/include/c++/11/bits/enable_special_members.h:
 
-/usr/include/c++/11/string:
-
-/usr/lib/gcc/x86_64-linux-gnu/11/include/clwbintrin.h:
-
-/usr/lib/gcc/x86_64-linux-gnu/11/include/clzerointrin.h:
-
 /usr/lib/gcc/x86_64-linux-gnu/11/include/avx2intrin.h:
 
 /usr/include/c++/11/bits/ptr_traits.h:
@@ -2553,6 +2627,8 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 /usr/include/x86_64-linux-gnu/bits/flt-eval-method.h:
 
 /usr/lib/gcc/x86_64-linux-gnu/11/include/avx512vbmi2intrin.h:
+
+/usr/include/x86_64-linux-gnu/bits/wchar2.h:
 
 /usr/include/x86_64-linux-gnu/bits/fp-logb.h:
 
@@ -2606,12 +2682,6 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 
 ../include/Player.h:
 
-../include/Ghost.h:
-
-/usr/include/c++/11/bits/streambuf.tcc:
-
-/usr/include/string.h:
-
 /usr/include/SDL2/SDL_stdinc.h:
 
 /usr/include/x86_64-linux-gnu/c++/11/bits/c++config.h:
@@ -2625,8 +2695,6 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 /usr/include/SDL2/close_code.h:
 
 /usr/include/c++/11/stdlib.h:
-
-/usr/lib/gcc/x86_64-linux-gnu/11/include/bmi2intrin.h:
 
 /usr/include/inttypes.h:
 
@@ -2645,7 +2713,3 @@ CMakeFiles/pacman.dir/src/main.cpp.o: ../src/main.cpp \
 /usr/include/c++/11/tr1/riemann_zeta.tcc:
 
 /usr/lib/gcc/x86_64-linux-gnu/11/include/x86gprintrin.h:
-
-/usr/include/SDL2/SDL_platform.h:
-
-/usr/lib/gcc/x86_64-linux-gnu/11/include/cldemoteintrin.h:

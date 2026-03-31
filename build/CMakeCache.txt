@@ -183,6 +183,9 @@ CMAKE_STRIP:FILEPATH=/usr/bin/strip
 // Studio IDE projects all commands are done without /nologo.
 CMAKE_VERBOSE_MAKEFILE:BOOL=FALSE
 
+//ONNX Runtime root directory
+ORT_ROOT:PATH=/home/abien/PAC-man/onnxruntime
+
 //Value Computed by CMake
 PacMan_BINARY_DIR:STATIC=/home/abien/PAC-man/build
 
