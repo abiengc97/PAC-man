@@ -69,6 +69,13 @@ void Ghost::update(const Maze& maze, const Player& pacman, const Ghost* blinky) 
         m_pixelX += dc * m_speed;
         m_pixelY += dr * m_speed;
 
+        // Tunnel wrap even while between tiles (prevents ghosts going off-screen)
+        if (m_pixelX < 0) {
+            m_pixelX = maze.getCols() * TILE_SIZE - m_speed;
+        } else if (m_pixelX >= maze.getCols() * TILE_SIZE) {
+            m_pixelX = m_speed;
+        }
+
         // Update grid position
         m_pos.row = m_pixelY / TILE_SIZE;
         m_pos.col = m_pixelX / TILE_SIZE;
