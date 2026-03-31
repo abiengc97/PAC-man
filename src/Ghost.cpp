@@ -97,7 +97,8 @@ void Ghost::update(const Maze& maze, const Player& pacman, const Ghost* blinky) 
             m_pixelX = m_pos.col * TILE_SIZE + TILE_SIZE / 2;
             m_pixelY = m_pos.row * TILE_SIZE + TILE_SIZE / 2;
             m_inHouse = true;
-            m_houseTimer = m_houseExitDelay; // exit immediately after eaten return
+            m_speed = 2; // restore normal speed after returning home
+            m_houseTimer = 0; // wait in house again before leaving
             return;
         }
         chosenDir = AStar::getNextDirection(maze, m_pos, houseEntry);
