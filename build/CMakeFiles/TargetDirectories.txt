@@ -1,3 +1,0 @@
-/home/abien/PAC-man/build/CMakeFiles/pacman.dir
-/home/abien/PAC-man/build/CMakeFiles/edit_cache.dir
-/home/abien/PAC-man/build/CMakeFiles/rebuild_cache.dir
