@@ -86,9 +86,12 @@ TileType Maze::getTile(int row, int col) const {
 
 bool Maze::isWalkable(int row, int col) const {
     if (!isInBounds(row, col)) {
-        // Allow wrapping through tunnels at row boundaries
+        // Horizontal wrap should only be allowed where the maze marks tunnel tiles.
+        // Otherwise ghosts/AI can "wrap" from non-tunnel rows into walls.
         if (row >= 0 && row < m_rows && (col < 0 || col >= m_cols)) {
-            return true; // tunnel wrap
+            GridPos wrapped = wrapPosition(row, col);
+            TileType t = m_grid[wrapped.row][wrapped.col];
+            return t == TileType::TUNNEL;
         }
         return false;
     }
