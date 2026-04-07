@@ -16,10 +16,12 @@ public:
     // Getters
     GridPos   getPos()       const { return m_pos; }
     Direction getDirection()  const { return m_direction; }
+    Direction getBufferedDirection() const { return m_nextDir; }
     bool      isAlive()      const { return m_alive; }
     int       getPixelX()    const { return m_pixelX; }
     int       getPixelY()    const { return m_pixelY; }
     int       getAnimFrame() const { return m_animFrame; }
+    bool      isGridAligned() const { return isAlignedToGrid(); }
 
     // Called by Game when ghost collision happens
     void die();
