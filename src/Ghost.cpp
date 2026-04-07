@@ -69,11 +69,19 @@ void Ghost::update(const Maze& maze, const Player& pacman, const Ghost* blinky) 
         m_pixelX += dc * m_speed;
         m_pixelY += dr * m_speed;
 
-        // Tunnel wrap even while between tiles (prevents ghosts going off-screen)
-        if (m_pixelX < 0) {
-            m_pixelX = maze.getCols() * TILE_SIZE - m_speed;
-        } else if (m_pixelX >= maze.getCols() * TILE_SIZE) {
-            m_pixelX = m_speed;
+        // Tunnel wrap even while between tiles, but only on actual tunnel rows.
+        if (m_pixelX < 0 || m_pixelX >= maze.getCols() * TILE_SIZE) {
+            int row = m_pixelY / TILE_SIZE;
+            if (row >= 0 && row < maze.getRows()) {
+                int wrappedCol = (m_pixelX < 0) ? (maze.getCols() - 1) : 0;
+                if (maze.getTile(row, wrappedCol) == TileType::TUNNEL) {
+                    m_pixelX = (m_pixelX < 0) ? (maze.getCols() * TILE_SIZE - m_speed) : m_speed;
+                } else {
+                    // Not a tunnel edge: keep in-bounds.
+                    if (m_pixelX < 0) m_pixelX = 0;
+                    if (m_pixelX >= maze.getCols() * TILE_SIZE) m_pixelX = maze.getCols() * TILE_SIZE - 1;
+                }
+            }
         }
 
         // Update grid position
@@ -119,11 +127,18 @@ void Ghost::update(const Maze& maze, const Player& pacman, const Ghost* blinky) 
     m_pixelX += dc * m_speed;
     m_pixelY += dr * m_speed;
 
-    // Tunnel wrap
-    if (m_pixelX < 0) {
-        m_pixelX = maze.getCols() * TILE_SIZE - m_speed;
-    } else if (m_pixelX >= maze.getCols() * TILE_SIZE) {
-        m_pixelX = m_speed;
+    // Tunnel wrap (only on tunnel rows)
+    if (m_pixelX < 0 || m_pixelX >= maze.getCols() * TILE_SIZE) {
+        int row = m_pixelY / TILE_SIZE;
+        if (row >= 0 && row < maze.getRows()) {
+            int wrappedCol = (m_pixelX < 0) ? (maze.getCols() - 1) : 0;
+            if (maze.getTile(row, wrappedCol) == TileType::TUNNEL) {
+                m_pixelX = (m_pixelX < 0) ? (maze.getCols() * TILE_SIZE - m_speed) : m_speed;
+            } else {
+                if (m_pixelX < 0) m_pixelX = 0;
+                if (m_pixelX >= maze.getCols() * TILE_SIZE) m_pixelX = maze.getCols() * TILE_SIZE - 1;
+            }
+        }
     }
 
     // Update grid position

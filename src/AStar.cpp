@@ -62,7 +62,11 @@ std::vector<GridPos> findPath(const Maze& maze, GridPos start, GridPos goal) {
             // Handle tunnel wrap
             GridPos neighbor;
             if (nc < 0 || nc >= maze.getCols()) {
-                neighbor = maze.wrapPosition(nr, nc);
+                // Only allow wrap on actual tunnel rows (edge tile must be TUNNEL).
+                if (!maze.isInBounds(nr, 0)) continue;
+                int wrappedCol = (nc < 0) ? (maze.getCols() - 1) : 0;
+                if (maze.getTile(nr, wrappedCol) != TileType::TUNNEL) continue;
+                neighbor = {nr, wrappedCol};
             } else {
                 neighbor = {nr, nc};
             }

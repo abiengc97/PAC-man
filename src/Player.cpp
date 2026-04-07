@@ -54,12 +54,25 @@ void Player::update(Maze& maze) {
     int gridRow = m_pixelY / TILE_SIZE;
 
     // Tunnel wrap
-    if (m_pixelX < 0) {
-        m_pixelX = maze.getCols() * TILE_SIZE - m_speed;
-        gridCol = maze.getCols() - 1;
-    } else if (m_pixelX >= maze.getCols() * TILE_SIZE) {
-        m_pixelX = m_speed;
-        gridCol = 0;
+    if (m_pixelX < 0 || m_pixelX >= maze.getCols() * TILE_SIZE) {
+        int row = gridRow;
+        if (row >= 0 && row < maze.getRows()) {
+            int wrappedCol = (m_pixelX < 0) ? (maze.getCols() - 1) : 0;
+            if (maze.getTile(row, wrappedCol) == TileType::TUNNEL) {
+                if (m_pixelX < 0) {
+                    m_pixelX = maze.getCols() * TILE_SIZE - m_speed;
+                    gridCol = maze.getCols() - 1;
+                } else {
+                    m_pixelX = m_speed;
+                    gridCol = 0;
+                }
+            } else {
+                // Not a tunnel edge: keep in-bounds.
+                if (m_pixelX < 0) m_pixelX = 0;
+                if (m_pixelX >= maze.getCols() * TILE_SIZE) m_pixelX = maze.getCols() * TILE_SIZE - 1;
+                gridCol = m_pixelX / TILE_SIZE;
+            }
+        }
     }
 
     m_pos = {gridRow, gridCol};
