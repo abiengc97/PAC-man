@@ -25,6 +25,7 @@ public:
     void drawPlayer(const Player& player);
     void drawGhost(const Ghost& ghost);
     void drawHUD(int score, int lives, int level);
+    void drawPause(void);
     void drawGameOver(int finalScore);
     void drawReady();
 

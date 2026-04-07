@@ -1,4 +1,5 @@
 #include "Renderer.h"
+#include "Common.h"
 #include "Maze.h"
 #include "Player.h"
 #include "Ghost.h"
@@ -21,19 +22,31 @@ static const uint8_t FONT_8[] = {0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E};
 static const uint8_t FONT_9[] = {0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C};
 
 static const uint8_t FONT_A[] = {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11};
+static const uint8_t FONT_B[] = {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E};
 static const uint8_t FONT_C[] = {0x0E,0x11,0x10,0x10,0x10,0x11,0x0E};
 static const uint8_t FONT_D[] = {0x1C,0x12,0x11,0x11,0x11,0x12,0x1C};
 static const uint8_t FONT_E[] = {0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F};
+static const uint8_t FONT_F[] = {0x1F,0x10,0x10,0x1E,0x10,0x10,0x10};
 static const uint8_t FONT_G[] = {0x0E,0x11,0x10,0x17,0x11,0x11,0x0F};
+static const uint8_t FONT_H[] = {0x11,0x11,0x11,0x1F,0x11,0x11,0x11};
 static const uint8_t FONT_I[] = {0x0E,0x04,0x04,0x04,0x04,0x04,0x0E};
+static const uint8_t FONT_J[] = {0x0F,0x02,0x02,0x02,0x02,0x12,0x0C};
+static const uint8_t FONT_K[] = {0x11,0x12,0x14,0x18,0x14,0x12,0x11};
 static const uint8_t FONT_L[] = {0x10,0x10,0x10,0x10,0x10,0x10,0x1F};
 static const uint8_t FONT_M[] = {0x11,0x1B,0x15,0x15,0x11,0x11,0x11};
+static const uint8_t FONT_N[] = {0x11,0x19,0x15,0x13,0x11,0x11,0x11};
 static const uint8_t FONT_O[] = {0x0E,0x11,0x11,0x11,0x11,0x11,0x0E};
 static const uint8_t FONT_P[] = {0x1E,0x11,0x11,0x1E,0x10,0x10,0x10};
+static const uint8_t FONT_Q[] = {0x0E,0x11,0x11,0x11,0x15,0x12,0x0D};
 static const uint8_t FONT_R[] = {0x1E,0x11,0x11,0x1E,0x14,0x12,0x11};
 static const uint8_t FONT_S[] = {0x0E,0x11,0x10,0x0E,0x01,0x11,0x0E};
+static const uint8_t FONT_T[] = {0x1F,0x04,0x04,0x04,0x04,0x04,0x04};
+static const uint8_t FONT_U[] = {0x11,0x11,0x11,0x11,0x11,0x11,0x0E};
 static const uint8_t FONT_V[] = {0x11,0x11,0x11,0x11,0x11,0x0A,0x04};
+static const uint8_t FONT_W[] = {0x11,0x11,0x11,0x15,0x15,0x1B,0x11};
+static const uint8_t FONT_X[] = {0x11,0x11,0x0A,0x04,0x0A,0x11,0x11};
 static const uint8_t FONT_Y[] = {0x11,0x11,0x0A,0x04,0x04,0x04,0x04};
+static const uint8_t FONT_Z[] = {0x1F,0x01,0x02,0x04,0x08,0x10,0x1F};
 static const uint8_t FONT_SPACE[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00};
 static const uint8_t FONT_COLON[] = {0x00,0x04,0x04,0x00,0x04,0x04,0x00};
 
@@ -44,19 +57,31 @@ static const uint8_t* getGlyph(char c) {
         case '6': return FONT_6; case '7': return FONT_7; case '8': return FONT_8;
         case '9': return FONT_9;
         case 'A': case 'a': return FONT_A;
+        case 'B': case 'b': return FONT_B;
         case 'C': case 'c': return FONT_C;
         case 'D': case 'd': return FONT_D;
         case 'E': case 'e': return FONT_E;
+        case 'F': case 'f': return FONT_F;
         case 'G': case 'g': return FONT_G;
+        case 'H': case 'h': return FONT_H;
         case 'I': case 'i': return FONT_I;
+        case 'J': case 'j': return FONT_J;
+        case 'K': case 'k': return FONT_K;
         case 'L': case 'l': return FONT_L;
         case 'M': case 'm': return FONT_M;
+        case 'N': case 'n': return FONT_N;
         case 'O': case 'o': return FONT_O;
         case 'P': case 'p': return FONT_P;
+        case 'Q': case 'q': return FONT_Q;
         case 'R': case 'r': return FONT_R;
         case 'S': case 's': return FONT_S;
+        case 'T': case 't': return FONT_T;
+        case 'U': case 'u': return FONT_U;
         case 'V': case 'v': return FONT_V;
+        case 'W': case 'w': return FONT_W;
+        case 'X': case 'x': return FONT_X;
         case 'Y': case 'y': return FONT_Y;
+        case 'Z': case 'z': return FONT_Z;
         case ':': return FONT_COLON;
         default:  return FONT_SPACE;
     }
@@ -94,6 +119,8 @@ bool Renderer::init(const std::string& title, int width, int height) {
         std::cerr << "SDL_CreateRenderer failed: " << SDL_GetError() << std::endl;
         return false;
     }
+
+    SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND);
 
     return true;
 }
@@ -271,6 +298,17 @@ void Renderer::drawHUD(int score, int lives, int level) {
 
     // Level
     drawString(SCREEN_W / 2 - 40, hudY, "LV:" + std::to_string(level), white, 2);
+}
+
+void Renderer::drawPause(void) {
+    int hudY = MAZE_ROWS * TILE_SIZE + 4;
+    SDL_Color white = {255, 255, 255, 255};
+    SDL_Color black = {0, 0, 0, 127};
+
+    // Overlay
+    drawRect(0, 0, SCREEN_W, SCREEN_H, black);
+    drawString(SCREEN_W / 2 - 60, SCREEN_H / 2 - 20, "PAUSED", white, 3);
+
 }
 
 void Renderer::drawGameOver(int finalScore) {
