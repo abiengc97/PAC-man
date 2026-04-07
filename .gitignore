@@ -18,3 +18,7 @@ pacman.exe
 .DS_Store
 Thumbs.db
 
+### (Jon added these)
+.cache
+.DS_store
+.zed

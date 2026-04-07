@@ -1,4 +1,5 @@
 #include "Renderer.h"
+#include "Common.h"
 #include "Maze.h"
 #include "Player.h"
 #include "Ghost.h"
@@ -21,19 +22,31 @@ static const uint8_t FONT_8[] = {0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E};
 static const uint8_t FONT_9[] = {0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C};
 
 static const uint8_t FONT_A[] = {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11};
+static const uint8_t FONT_B[] = {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E};
 static const uint8_t FONT_C[] = {0x0E,0x11,0x10,0x10,0x10,0x11,0x0E};
 static const uint8_t FONT_D[] = {0x1C,0x12,0x11,0x11,0x11,0x12,0x1C};
 static const uint8_t FONT_E[] = {0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F};
+static const uint8_t FONT_F[] = {0x1F,0x10,0x10,0x1E,0x10,0x10,0x10};
 static const uint8_t FONT_G[] = {0x0E,0x11,0x10,0x17,0x11,0x11,0x0F};
+static const uint8_t FONT_H[] = {0x11,0x11,0x11,0x1F,0x11,0x11,0x11};
 static const uint8_t FONT_I[] = {0x0E,0x04,0x04,0x04,0x04,0x04,0x0E};
+static const uint8_t FONT_J[] = {0x0F,0x02,0x02,0x02,0x02,0x12,0x0C};
+static const uint8_t FONT_K[] = {0x11,0x12,0x14,0x18,0x14,0x12,0x11};
 static const uint8_t FONT_L[] = {0x10,0x10,0x10,0x10,0x10,0x10,0x1F};
 static const uint8_t FONT_M[] = {0x11,0x1B,0x15,0x15,0x11,0x11,0x11};
+static const uint8_t FONT_N[] = {0x11,0x19,0x15,0x13,0x11,0x11,0x11};
 static const uint8_t FONT_O[] = {0x0E,0x11,0x11,0x11,0x11,0x11,0x0E};
 static const uint8_t FONT_P[] = {0x1E,0x11,0x11,0x1E,0x10,0x10,0x10};
+static const uint8_t FONT_Q[] = {0x0E,0x11,0x11,0x11,0x15,0x12,0x0D};
 static const uint8_t FONT_R[] = {0x1E,0x11,0x11,0x1E,0x14,0x12,0x11};
 static const uint8_t FONT_S[] = {0x0E,0x11,0x10,0x0E,0x01,0x11,0x0E};
+static const uint8_t FONT_T[] = {0x1F,0x04,0x04,0x04,0x04,0x04,0x04};
+static const uint8_t FONT_U[] = {0x11,0x11,0x11,0x11,0x11,0x11,0x0E};
 static const uint8_t FONT_V[] = {0x11,0x11,0x11,0x11,0x11,0x0A,0x04};
+static const uint8_t FONT_W[] = {0x11,0x11,0x11,0x15,0x15,0x1B,0x11};
+static const uint8_t FONT_X[] = {0x11,0x11,0x0A,0x04,0x0A,0x11,0x11};
 static const uint8_t FONT_Y[] = {0x11,0x11,0x0A,0x04,0x04,0x04,0x04};
+static const uint8_t FONT_Z[] = {0x1F,0x01,0x02,0x04,0x08,0x10,0x1F};
 static const uint8_t FONT_SPACE[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00};
 static const uint8_t FONT_COLON[] = {0x00,0x04,0x04,0x00,0x04,0x04,0x00};
 
@@ -44,19 +57,31 @@ static const uint8_t* getGlyph(char c) {
         case '6': return FONT_6; case '7': return FONT_7; case '8': return FONT_8;
         case '9': return FONT_9;
         case 'A': case 'a': return FONT_A;
+        case 'B': case 'b': return FONT_B;
         case 'C': case 'c': return FONT_C;
         case 'D': case 'd': return FONT_D;
         case 'E': case 'e': return FONT_E;
+        case 'F': case 'f': return FONT_F;
         case 'G': case 'g': return FONT_G;
+        case 'H': case 'h': return FONT_H;
         case 'I': case 'i': return FONT_I;
+        case 'J': case 'j': return FONT_J;
+        case 'K': case 'k': return FONT_K;
         case 'L': case 'l': return FONT_L;
         case 'M': case 'm': return FONT_M;
+        case 'N': case 'n': return FONT_N;
         case 'O': case 'o': return FONT_O;
         case 'P': case 'p': return FONT_P;
+        case 'Q': case 'q': return FONT_Q;
         case 'R': case 'r': return FONT_R;
         case 'S': case 's': return FONT_S;
+        case 'T': case 't': return FONT_T;
+        case 'U': case 'u': return FONT_U;
         case 'V': case 'v': return FONT_V;
+        case 'W': case 'w': return FONT_W;
+        case 'X': case 'x': return FONT_X;
         case 'Y': case 'y': return FONT_Y;
+        case 'Z': case 'z': return FONT_Z;
         case ':': return FONT_COLON;
         default:  return FONT_SPACE;
     }
@@ -94,6 +119,8 @@ bool Renderer::init(const std::string& title, int width, int height) {
         std::cerr << "SDL_CreateRenderer failed: " << SDL_GetError() << std::endl;
         return false;
     }
+
+    SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND);
 
     return true;
 }
@@ -154,43 +181,30 @@ void Renderer::drawPlayer(const Player& player) {
     int cy = player.getPixelY();
     int radius = TILE_SIZE / 2 - 2;
 
-    // Yellow circle for Pac-Man
+    // Yellow for Pac-Man
     SDL_Color yellow = {255, 255, 0, 255};
-    drawCircle(cx, cy, radius, yellow);
 
     // Draw mouth based on direction and animation
     SDL_Color black = {0, 0, 0, 255};
     int frame = player.getAnimFrame();
-    int mouthSize = (frame % 2 == 0) ? radius / 2 : radius / 4;
+    int mouthSize = (frame % 2 == 0) ? M_PI / 3 : 0;
 
     Direction dir = player.getDirection();
     if (dir == Direction::NONE) dir = Direction::RIGHT;
 
-    // Simple mouth as a triangle-ish wedge using black rectangles
+    // Draw Pac-Man in the right direction
     switch (dir) {
         case Direction::RIGHT:
-            for (int i = 0; i < mouthSize; i++) {
-                drawRect(cx + radius - i, cy - i, i + 1, 1, black);
-                drawRect(cx + radius - i, cy + i, i + 1, 1, black);
-            }
+            drawCircle(cx, cy, radius, yellow, 0, mouthSize);
             break;
         case Direction::LEFT:
-            for (int i = 0; i < mouthSize; i++) {
-                drawRect(cx - radius, cy - i, i + 1, 1, black);
-                drawRect(cx - radius, cy + i, i + 1, 1, black);
-            }
+            drawCircle(cx, cy, radius, yellow, M_PI, mouthSize);
             break;
         case Direction::UP:
-            for (int i = 0; i < mouthSize; i++) {
-                drawRect(cx - i, cy - radius, 1, i + 1, black);
-                drawRect(cx + i, cy - radius, 1, i + 1, black);
-            }
+            drawCircle(cx, cy, radius, yellow, 3 * M_PI / 2, mouthSize);
             break;
         case Direction::DOWN:
-            for (int i = 0; i < mouthSize; i++) {
-                drawRect(cx - i, cy + radius - i, 1, i + 1, black);
-                drawRect(cx + i, cy + radius - i, 1, i + 1, black);
-            }
+            drawCircle(cx, cy, radius, yellow, M_PI / 2, mouthSize);
             break;
         default: break;
     }
@@ -219,9 +233,9 @@ void Renderer::drawGhost(const Ghost& ghost) {
     drawRect(cx - radius, cy - 2, radius * 2 + 1, radius, color);
 
     // Wavy bottom edge
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 4; i++) {
         int bx = cx - radius + i * (radius * 2 / 3);
-        drawRect(bx, cy + radius - 4, radius * 2 / 3, 3, {0, 0, 0, 255});
+        drawRect(bx, cy + radius - 2, radius * 2 / 3 / 2, 3, color);
     }
 
     // Eyes
@@ -266,11 +280,22 @@ void Renderer::drawHUD(int score, int lives, int level) {
 
     // Lives (draw Pac-Man icons)
     for (int i = 0; i < lives; i++) {
-        drawCircle(SCREEN_W - 30 - i * 28, hudY + 10, 8, yellow);
+        drawCircle(SCREEN_W - 30 - i * 28, hudY + 10, 8, yellow, 0, M_PI / 3);
     }
 
     // Level
     drawString(SCREEN_W / 2 - 40, hudY, "LV:" + std::to_string(level), white, 2);
+}
+
+void Renderer::drawPause(void) {
+    int hudY = MAZE_ROWS * TILE_SIZE + 4;
+    SDL_Color white = {255, 255, 255, 255};
+    SDL_Color black = {0, 0, 0, 127};
+
+    // Overlay
+    drawRect(0, 0, SCREEN_W, SCREEN_H, black);
+    drawString(SCREEN_W / 2 - 60, SCREEN_H / 2 - 20, "PAUSED", white, 3);
+
 }
 
 void Renderer::drawGameOver(int finalScore) {
@@ -301,6 +326,22 @@ void Renderer::drawCircle(int cx, int cy, int radius, SDL_Color color) {
     for (int dy = -radius; dy <= radius; dy++) {
         for (int dx = -radius; dx <= radius; dx++) {
             if (dx*dx + dy*dy <= radius*radius) {
+                SDL_RenderDrawPoint(m_renderer, cx + dx, cy + dy);
+            }
+        }
+    }
+}
+
+void Renderer::drawCircle(int cx, int cy, int radius, SDL_Color color, float mouthAngle, float mouthSize) {
+    SDL_SetRenderDrawColor(m_renderer, color.r, color.g, color.b, color.a);
+    float halfMouth = mouthSize / 2.0f;
+    for (int dy = -radius; dy <= radius; dy++) {
+        for (int dx = -radius; dx <= radius; dx++) {
+            if (dx*dx + dy*dy <= radius*radius) {
+                if (dx == 0 && dy == 0) continue;
+                float angle = atan2f((float)dy, (float)dx);
+                float diff = atan2f(sinf(angle - mouthAngle), cosf(angle - mouthAngle));
+                if (fabsf(diff) <= halfMouth) continue;
                 SDL_RenderDrawPoint(m_renderer, cx + dx, cy + dy);
             }
         }

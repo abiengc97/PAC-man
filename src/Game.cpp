@@ -1,4 +1,5 @@
 #include "Game.h"
+#include "Common.h"
 #include <SDL2/SDL.h>
 #include <iostream>
 #include <cstdlib>
@@ -162,6 +163,10 @@ void Game::render() {
 
     if (m_readyTimer > 0) {
         m_renderer.drawReady();
+    }
+
+    if (m_state == GameState::PAUSED) {
+        m_renderer.drawPause();
     }
 
     if (m_state == GameState::GAME_OVER) {
