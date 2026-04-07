@@ -1,3 +1,0 @@
-/home/sid/Desktop/Pac/PAC-man/build/CMakeFiles/pacman.dir
-/home/sid/Desktop/Pac/PAC-man/build/CMakeFiles/edit_cache.dir
-/home/sid/Desktop/Pac/PAC-man/build/CMakeFiles/rebuild_cache.dir
