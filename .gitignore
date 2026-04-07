@@ -10,11 +10,15 @@ Makefile
 pacman
 pacman.exe
 
+### Logs
+*.log
+logs/
+log/
+
 ### Editor / OS noise (optional but useful)
 *.swp
 *.swo
 *.tmp
-*.log
 .DS_Store
 Thumbs.db
 
