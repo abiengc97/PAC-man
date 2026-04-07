@@ -181,43 +181,30 @@ void Renderer::drawPlayer(const Player& player) {
     int cy = player.getPixelY();
     int radius = TILE_SIZE / 2 - 2;
 
-    // Yellow circle for Pac-Man
+    // Yellow for Pac-Man
     SDL_Color yellow = {255, 255, 0, 255};
-    drawCircle(cx, cy, radius, yellow);
 
     // Draw mouth based on direction and animation
     SDL_Color black = {0, 0, 0, 255};
     int frame = player.getAnimFrame();
-    int mouthSize = (frame % 2 == 0) ? radius / 2 : radius / 4;
+    int mouthSize = (frame % 2 == 0) ? M_PI / 3 : 0;
 
     Direction dir = player.getDirection();
     if (dir == Direction::NONE) dir = Direction::RIGHT;
 
-    // Simple mouth as a triangle-ish wedge using black rectangles
+    // Draw Pac-Man in the right direction
     switch (dir) {
         case Direction::RIGHT:
-            for (int i = 0; i < mouthSize; i++) {
-                drawRect(cx + radius - i, cy - i, i + 1, 1, black);
-                drawRect(cx + radius - i, cy + i, i + 1, 1, black);
-            }
+            drawCircle(cx, cy, radius, yellow, 0, mouthSize);
             break;
         case Direction::LEFT:
-            for (int i = 0; i < mouthSize; i++) {
-                drawRect(cx - radius, cy - i, i + 1, 1, black);
-                drawRect(cx - radius, cy + i, i + 1, 1, black);
-            }
+            drawCircle(cx, cy, radius, yellow, M_PI, mouthSize);
             break;
         case Direction::UP:
-            for (int i = 0; i < mouthSize; i++) {
-                drawRect(cx - i, cy - radius, 1, i + 1, black);
-                drawRect(cx + i, cy - radius, 1, i + 1, black);
-            }
+            drawCircle(cx, cy, radius, yellow, 3 * M_PI / 2, mouthSize);
             break;
         case Direction::DOWN:
-            for (int i = 0; i < mouthSize; i++) {
-                drawRect(cx - i, cy + radius - i, 1, i + 1, black);
-                drawRect(cx + i, cy + radius - i, 1, i + 1, black);
-            }
+            drawCircle(cx, cy, radius, yellow, M_PI / 2, mouthSize);
             break;
         default: break;
     }
@@ -246,9 +233,9 @@ void Renderer::drawGhost(const Ghost& ghost) {
     drawRect(cx - radius, cy - 2, radius * 2 + 1, radius, color);
 
     // Wavy bottom edge
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 4; i++) {
         int bx = cx - radius + i * (radius * 2 / 3);
-        drawRect(bx, cy + radius - 4, radius * 2 / 3, 3, {0, 0, 0, 255});
+        drawRect(bx, cy + radius - 2, radius * 2 / 3 / 2, 3, color);
     }
 
     // Eyes
@@ -293,7 +280,7 @@ void Renderer::drawHUD(int score, int lives, int level) {
 
     // Lives (draw Pac-Man icons)
     for (int i = 0; i < lives; i++) {
-        drawCircle(SCREEN_W - 30 - i * 28, hudY + 10, 8, yellow);
+        drawCircle(SCREEN_W - 30 - i * 28, hudY + 10, 8, yellow, 0, M_PI / 3);
     }
 
     // Level
@@ -339,6 +326,22 @@ void Renderer::drawCircle(int cx, int cy, int radius, SDL_Color color) {
     for (int dy = -radius; dy <= radius; dy++) {
         for (int dx = -radius; dx <= radius; dx++) {
             if (dx*dx + dy*dy <= radius*radius) {
+                SDL_RenderDrawPoint(m_renderer, cx + dx, cy + dy);
+            }
+        }
+    }
+}
+
+void Renderer::drawCircle(int cx, int cy, int radius, SDL_Color color, float mouthAngle, float mouthSize) {
+    SDL_SetRenderDrawColor(m_renderer, color.r, color.g, color.b, color.a);
+    float halfMouth = mouthSize / 2.0f;
+    for (int dy = -radius; dy <= radius; dy++) {
+        for (int dx = -radius; dx <= radius; dx++) {
+            if (dx*dx + dy*dy <= radius*radius) {
+                if (dx == 0 && dy == 0) continue;
+                float angle = atan2f((float)dy, (float)dx);
+                float diff = atan2f(sinf(angle - mouthAngle), cosf(angle - mouthAngle));
+                if (fabsf(diff) <= halfMouth) continue;
                 SDL_RenderDrawPoint(m_renderer, cx + dx, cy + dy);
             }
         }
