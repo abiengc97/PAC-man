@@ -72,7 +72,7 @@ while you play.
 
 Each line is a JSON object. The log includes:
 
-- Per-frame keypresses and the effective action label
+- Per-frame keypress metadata plus a `target_action` label derived from buffered direction first, then current movement
 - Pac-Man grid/pixel position, current direction, and buffered direction
 - All ghost positions, directions, modes, and distance-to-player
 - Power-pellet positions before/after the frame
@@ -82,6 +82,10 @@ Each line is a JSON object. The log includes:
 There is no bonus fruit entity in the current game logic yet, so
 `bonus_fruit_position` is logged as `null`. Power pellets are included as the
 "big item" signal instead.
+
+Ready-countdown frames are skipped. `ghost_mode_phase` advances only after a
+full scatter/chase pair; `ghost_mode_step` advances on each scatter/chase
+segment and is usually the more useful field to model.
 
 ## Level File Format
 

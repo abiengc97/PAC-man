@@ -236,7 +236,9 @@ void Game::processInput() {
 }
 
 void Game::update() {
-    const bool shouldLogFrame = m_loggingEnabled && m_state == GameState::PLAYING;
+    const bool shouldLogFrame = m_loggingEnabled &&
+                                m_state == GameState::PLAYING &&
+                                m_readyTimer == 0;
     FrameObservation observation;
     if (shouldLogFrame) {
         observation = captureObservation();
@@ -480,18 +482,18 @@ Game::FrameObservation Game::captureObservation() const {
     observation.score = m_score;
     observation.lives = m_lives;
     observation.level = m_level;
-    observation.readyTimer = m_readyTimer;
     observation.remainingPellets = m_maze.getRemainingPellets();
     observation.ghostEatCombo = m_ghostEatCombo;
     observation.modeTimer = m_modeTimer;
     observation.modePhase = m_modePhase;
+    observation.modeStep = getGhostModeStep();
     observation.isChaseMode = m_isChaseMode;
     observation.playerPos = m_player.getPos();
     observation.playerPixelX = m_player.getPixelX();
     observation.playerPixelY = m_player.getPixelY();
     observation.playerDirection = m_player.getDirection();
     observation.bufferedDirection = m_player.getBufferedDirection();
-    observation.effectiveAction = getEffectiveAction();
+    observation.targetAction = getTargetAction();
     observation.playerTile = m_maze.getTile(observation.playerPos.row, observation.playerPos.col);
     observation.playerAlive = m_player.isAlive();
     observation.playerAlignedToGrid = m_player.isGridAligned();
@@ -513,13 +515,17 @@ Game::FrameObservation Game::captureObservation() const {
     return observation;
 }
 
-Direction Game::getEffectiveAction() const {
+Direction Game::getTargetAction() const {
     const Direction bufferedDirection = m_player.getBufferedDirection();
     if (bufferedDirection != Direction::NONE) {
         return bufferedDirection;
     }
 
     return m_player.getDirection();
+}
+
+int Game::getGhostModeStep() const {
+    return m_modePhase * 2 + (m_isChaseMode ? 1 : 0);
 }
 
 std::vector<GridPos> Game::collectTilePositions(TileType tileType) const {
@@ -552,8 +558,6 @@ void Game::logFrame(const FrameObservation& observation, const FrameEvents& even
         << ",\"lives_after\":" << m_lives
         << ",\"level_before\":" << observation.level
         << ",\"level_after\":" << m_level
-        << ",\"ready_timer_before\":" << observation.readyTimer
-        << ",\"ready_timer_after\":" << m_readyTimer
         << ",\"remaining_pellets_before\":" << observation.remainingPellets
         << ",\"remaining_pellets_after\":" << m_maze.getRemainingPellets()
         << ",\"ghost_eat_combo_before\":" << observation.ghostEatCombo
@@ -562,6 +566,8 @@ void Game::logFrame(const FrameObservation& observation, const FrameEvents& even
         << ",\"ghost_mode_timer_after\":" << m_modeTimer
         << ",\"ghost_mode_phase_before\":" << observation.modePhase
         << ",\"ghost_mode_phase_after\":" << m_modePhase
+        << ",\"ghost_mode_step_before\":" << observation.modeStep
+        << ",\"ghost_mode_step_after\":" << getGhostModeStep()
         << ",\"is_chase_mode_before\":" << (observation.isChaseMode ? "true" : "false")
         << ",\"is_chase_mode_after\":" << (m_isChaseMode ? "true" : "false")
         << ",\"input\":{\"keypresses\":[";
@@ -572,7 +578,7 @@ void Game::logFrame(const FrameObservation& observation, const FrameEvents& even
     }
 
     m_logFile
-        << "],\"effective_action\":\"" << directionToString(observation.effectiveAction)
+        << "],\"target_action\":\"" << directionToString(observation.targetAction)
         << "\",\"buffered_direction\":\"" << directionToString(observation.bufferedDirection)
         << "\",\"current_direction\":\"" << directionToString(observation.playerDirection)
         << "\"}"
