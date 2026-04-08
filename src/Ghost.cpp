@@ -163,6 +163,16 @@ void Ghost::reverseDirection() {
 void Ghost::setEaten() {
     m_mode  = GhostMode::EATEN;
     m_speed = 4; // eyes move fast
+
+    // Snap to tile center. Frightened speed is 2 and eaten is 4; changing speed
+    // mid-tile can leave pixel coords that never hit k*TILE_SIZE + TILE_SIZE/2, so
+    // isAlignedToGrid() stays false and we only slide in m_direction without
+    // wall checks — ghosts can end up inside walls ("stuck between bricks").
+    const int col = m_pixelX / TILE_SIZE;
+    const int row = m_pixelY / TILE_SIZE;
+    m_pos       = {row, col};
+    m_pixelX    = col * TILE_SIZE + TILE_SIZE / 2;
+    m_pixelY    = row * TILE_SIZE + TILE_SIZE / 2;
 }
 
 // ============================================================
