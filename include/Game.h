@@ -12,7 +12,8 @@
 
 class Game {
 public:
-    Game();
+    explicit Game(bool headless = false, bool rlMode = false,
+                  int startLevel = 1, bool rlRender = false);
     ~Game();
 
     bool init();
@@ -100,6 +101,26 @@ private:
         bool levelCleared = false;
         bool gameOver = false;
     };
+
+    // Headless / RL mode
+    bool      m_headless   = false;
+    bool      m_rlMode     = false;
+    bool      m_rlRender   = false;
+    int       m_startLevel = 1;
+    Direction m_rlAction   = Direction::NONE;
+
+    static constexpr int RL_STATE_SIZE = 940; // full 31x28 maze (868) + 7x7 local window (49)
+                                               // + 8 ghost pos + 2 scalars + 4 is_frightened
+                                               // + 4 frightened_timer + chase_mode + mode_timer
+                                               // + power_pellet_dir(2) + visit_novelty
+
+    void  runRL();
+    std::array<float, RL_STATE_SIZE> buildStateVector() const;
+    void  writeRLStep(const std::array<float, RL_STATE_SIZE>& state,
+                      float reward, bool done) const;
+
+    // Per-episode tile visit counts for exploration novelty reward (RL only)
+    std::array<std::array<int, MAZE_COLS>, MAZE_ROWS> m_rlVisitCount{};
 
     bool        m_loggingEnabled = false;
     std::ofstream m_logFile;

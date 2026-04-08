@@ -26,6 +26,7 @@ public:
     int       getPixelX()    const { return m_pixelX; }
     int       getPixelY()    const { return m_pixelY; }
     bool      isInHouse()    const { return m_inHouse; }
+    int       getFrightenedTimer() const { return m_frightenedTimer; }
 
     // For eaten ghost returning to house
     void setEaten();

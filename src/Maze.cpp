@@ -74,7 +74,7 @@ bool Maze::loadFromFile(const std::string& filepath) {
     m_originalGrid = m_grid;
     countPellets();
 
-    std::cout << "Maze loaded: " << m_rows << " x " << m_cols
+    std::cerr << "Maze loaded: " << m_rows << " x " << m_cols
               << " (" << m_totalPellets << " pellets)" << std::endl;
     return true;
 }

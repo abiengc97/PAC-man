@@ -15,6 +15,11 @@ pacman.exe
 logs/
 log/
 
+### RL training outputs (checkpoints, TensorBoard, saved SB3 models)
+checkpoints/
+tb_logs/
+models/
+
 ### Editor / OS noise (optional but useful)
 *.swp
 *.swo
