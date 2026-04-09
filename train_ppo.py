@@ -37,6 +37,14 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
+# Optional experiment tracking (only used when enabled via CLI)
+try:
+    import wandb  # type: ignore
+    from wandb.integration.sb3 import WandbCallback  # type: ignore
+except Exception:  # pragma: no cover
+    wandb = None
+    WandbCallback = None
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -316,6 +324,12 @@ def train(
     n_envs: int = 8,
     bc_init: str | None = None,
     hp: PacmanRLPPOHparams | None = None,
+    wandb_enabled: bool = False,
+    wandb_project: str = "pacman-rl",
+    wandb_entity: str | None = None,
+    wandb_run_name: str | None = None,
+    wandb_group: str | None = None,
+    wandb_tags: list[str] | None = None,
 ) -> PPO:
     if hp is None:
         hp = PacmanRLPPOHparams()
@@ -340,6 +354,31 @@ def train(
         tensorboard_log="./tb_logs/",
     )
 
+    # ---- Weights & Biases (optional) ---------------------------------------
+    if wandb_enabled:
+        if wandb is None or WandbCallback is None:
+            raise RuntimeError(
+                "W&B requested but not installed. Install with:  pip install wandb"
+            )
+
+        wandb.init(
+            project=wandb_project,
+            entity=wandb_entity,
+            name=wandb_run_name,
+            group=wandb_group,
+            tags=wandb_tags,
+            config={
+                "algo": "PPO",
+                "n_envs": n_envs,
+                "state_size": STATE_SIZE,
+                "n_actions": N_ACTIONS,
+                "curriculum": CURRICULUM,
+                **dataclasses.asdict(hp),
+            },
+            sync_tensorboard=True,
+            save_code=True,
+        )
+
     # ---- Build initial env & model ----------------------------------------
     env = make_vec_env(make_env_fn(CURRICULUM[0][0]), n_envs=n_envs)
 
@@ -361,6 +400,9 @@ def train(
 
     # ---- Curriculum loop --------------------------------------------------
     for level, timesteps in CURRICULUM:
+        if wandb_enabled and wandb is not None and wandb.run is not None:
+            wandb.config.update({"curriculum_level": level}, allow_val_change=True)
+
         print(f"\n{'='*55}")
         print(f"  Level {level:>2}  —  {timesteps:,} steps  ({n_envs} envs)")
         print(f"{'='*55}")
@@ -375,7 +417,15 @@ def train(
             verbose=0,
         )
 
-        callbacks = [checkpoint_cb, dual_lr]
+        callbacks: list[BaseCallback] = [checkpoint_cb, dual_lr]
+        if wandb_enabled and WandbCallback is not None:
+            callbacks.append(
+                WandbCallback(
+                    gradient_save_freq=0,
+                    model_save_path=f"wandb_models/level{level}",
+                    verbose=0,
+                )
+            )
 
         model.learn(
             total_timesteps=timesteps,
@@ -388,6 +438,9 @@ def train(
         model.save(save_path)
         print(f"  Saved → {save_path}.zip")
         env.close()
+
+    if wandb_enabled and wandb is not None:
+        wandb.finish()
 
     return model
 
@@ -475,6 +528,20 @@ def main():
     parser.add_argument("--n-steps", type=int, default=d.n_steps, help="Steps per env per rollout")
     parser.add_argument("--batch-size", type=int, default=d.batch_size, help="Minibatch size for PPO")
     parser.add_argument("--n-epochs", type=int, default=d.n_epochs, help="Optimization epochs per rollout")
+
+    # W&B
+    parser.add_argument("--wandb", action="store_true",
+                        help="Enable Weights & Biases logging (requires `pip install wandb`)")
+    parser.add_argument("--wandb-project", type=str, default="pacman-rl",
+                        help="W&B project name (default: pacman-rl)")
+    parser.add_argument("--wandb-entity", type=str, default=None,
+                        help="W&B entity/team (default: none)")
+    parser.add_argument("--wandb-run-name", type=str, default=None,
+                        help="W&B run name (default: auto)")
+    parser.add_argument("--wandb-group", type=str, default=None,
+                        help="W&B group (default: none)")
+    parser.add_argument("--wandb-tags", type=str, default="",
+                        help="Comma-separated W&B tags (default: none)")
     args = parser.parse_args()
 
     if not os.path.isfile(PACMAN_BIN):
@@ -498,7 +565,18 @@ def main():
         export_onnx(model)
     else:
         hp = hparams_from_args(args)
-        model = train(n_envs=args.envs, bc_init=args.bc_init, hp=hp)
+        tags = [t.strip() for t in args.wandb_tags.split(",") if t.strip()] if args.wandb_tags else None
+        model = train(
+            n_envs=args.envs,
+            bc_init=args.bc_init,
+            hp=hp,
+            wandb_enabled=args.wandb,
+            wandb_project=args.wandb_project,
+            wandb_entity=args.wandb_entity,
+            wandb_run_name=args.wandb_run_name,
+            wandb_group=args.wandb_group,
+            wandb_tags=tags,
+        )
         export_onnx(model)
 
 

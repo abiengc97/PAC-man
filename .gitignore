@@ -20,6 +20,14 @@ checkpoints/
 tb_logs/
 models/
 
+### Python cache
+__pycache__/
+*.pyc
+
+### Weights & Biases
+wandb/
+*.wandb
+
 ### Editor / OS noise (optional but useful)
 *.swp
 *.swo

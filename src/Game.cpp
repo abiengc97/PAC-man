@@ -880,7 +880,11 @@ void Game::runRL() {
             m_rlVisitCount[pGrid.row][pGrid.col]++;
         }
 
-        const bool done = m_frameEvents.gameOver || m_frameEvents.levelCleared;
+        // End the RL episode on life loss as well as true game termination.
+        // PPO learns much more reliably when "death" is a terminal signal;
+        // otherwise the negative death reward is followed by a respawn with
+        // unrelated dynamics, which smears credit assignment across lives.
+        const bool done = m_frameEvents.playerDied || m_frameEvents.gameOver || m_frameEvents.levelCleared;
         writeRLStep(buildStateVector(), reward, done);
     }
 }
