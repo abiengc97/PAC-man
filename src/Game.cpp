@@ -443,6 +443,7 @@ void Game::eatPellet(TileType pelletType) {
 
 void Game::nextLevel() {
     m_level++;
+    m_rlVisitCount = {};   // new level = fresh exploration slate
     startLevel();
 }
 
@@ -865,10 +866,10 @@ void Game::runRL() {
             reward += 1.0f + nearCount * 1.0f;
         }
 
-        // Pellet navigation: increased coeff 0.03→0.05 to pull agent toward pellets
+        // Pellet navigation: coeff raised 0.05→0.15 to compete with ghost danger penalty
         if (m_maze.getRemainingPellets() > 0 && pelletDistBefore < 999999) {
             reward += static_cast<float>(pelletDistBefore - pelletDistAfter)
-                      * (0.05f / TILE_SIZE);
+                      * (0.15f / TILE_SIZE);
         }
 
         // Exploration novelty (unchanged)

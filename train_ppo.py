@@ -61,12 +61,15 @@ class PacmanRLPPOHparams:
 
     pi_lr: float = 1e-4           # TrainerConfig.lr
     value_lr_mult: float = 10.0   # v_lr=1e-3 vs pi_lr=1e-4 in ppo.py
-    gamma: float = 0.9            # --gamma in manager.py
-    gae_lambda: float = 0.5       # --lam (PPO GAE λ)
+    gamma: float = 0.97           # raised from 0.9 — Pac-Man has long-horizon dependencies
+                                  # (power-pellet payoff spans ~6 s; γ=0.9 discounts 20 steps to 12%)
+    gae_lambda: float = 0.95      # raised from 0.5 — less biased advantage estimates
     clip_range: float = 0.2       # Pacman-RL uses epsilon≈0.5 as clip; 0.2 is safer in SB3
     ent_coef: float = 0.01        # pi_loss -= 0.01 * entropy in ppo.py
-    target_kl: float = 0.01       # PPOActor.target_kl; SB3 stops epochs when KL explodes
-    n_steps: int = 2048
+    target_kl: float = 0.05       # loosened from 0.01 — 0.01 caused frequent early-stop,
+                                  # barely moving the policy per update
+    n_steps: int = 4096           # raised from 2048 — 8 envs × 4096 = 32k samples/update,
+                                  # more reliably captures complete episodes (MAX_STEPS=8000)
     batch_size: int = 256
     n_epochs: int = 10            # TF side uses up to 80 inner steps; epoch count differs
 
@@ -287,8 +290,12 @@ CURRICULUM = [
     (1,  2_000_000),
     (2,  2_000_000),
     (3,  2_000_000),
+    (4,  2_000_000),   # bridging level — avoids hard jump from 3→5
     (5,  3_000_000),
+    (6,  2_000_000),   # bridging level — avoids hard jump from 5→8
+    (7,  2_000_000),   # bridging level
     (8,  3_000_000),
+    (9,  2_000_000),   # bridging level — avoids hard jump from 8→10
     (10, 4_000_000),
 ]
 
@@ -343,6 +350,8 @@ def train(
         print("BC weights loaded — PPO will continue with Pacman-RL–aligned hparams.\n")
     else:
         model = PPO("MlpPolicy", env, policy_kwargs=pkw, **common)
+
+    env.close()  # model only needed env for construction; curriculum loop attaches fresh envs
 
     dual_lr = DualLRCallback(
         policy_lr=hp.pi_lr,

@@ -180,6 +180,7 @@ def parse_logs(log_dir: str, level_path: str):
         visit_count: dict = {}
         frightened_timers = [0, 0, 0, 0]
         frames_added      = 0
+        last_action: int | None = None   # carry-forward for 'none' frames
 
         with open(log_file) as f:
             for line in f:
@@ -191,12 +192,18 @@ def parse_logs(log_dir: str, level_path: str):
                     continue
 
                 action_str = d['input']['target_action']
-                if action_str not in ACTION_MAP:
-                    continue          # skip 'none' frames
+                if action_str in ACTION_MAP:
+                    action = ACTION_MAP[action_str]
+                    last_action = action
+                elif last_action is not None:
+                    # 'none' frame — reuse last valid action rather than dropping it.
+                    # Dropping biases the dataset toward always having a direction change.
+                    action = last_action
+                else:
+                    continue   # very first frame has no prior action; skip
 
                 # ---- build state from log data
                 state  = build_state(d, maze, visit_count, frightened_timers, total_pellets)
-                action = ACTION_MAP[action_str]
                 all_states.append(state)
                 all_actions.append(action)
                 frames_added += 1
@@ -260,9 +267,6 @@ def pretrain(log_dir: str   = 'logs',
 
     # 1. Dataset
     states, actions = parse_logs(log_dir, level_path)
-    dataset = TensorDataset(torch.from_numpy(states), torch.from_numpy(actions))
-    loader  = DataLoader(dataset, batch_size=batch_size, shuffle=True,
-                         num_workers=0, pin_memory=True)
 
     # 2. Build PPO model (just to get the network structure + weights)
     print("\nBuilding PPO policy structure ...")
@@ -283,9 +287,33 @@ def pretrain(log_dir: str   = 'logs',
     opt    = torch.optim.Adam(actor.parameters(), lr=lr)
     crit   = nn.CrossEntropyLoss()
 
+    # Train/val split (90/10) — saves best-val checkpoint, avoids overfitting
+    n_total = len(states)
+    idx = np.random.permutation(n_total)
+    if n_total <= 1:
+        train_idx, val_idx = idx, np.array([], dtype=np.int64)
+    else:
+        n_val = min(max(1, int(n_total * 0.1)), n_total - 1)
+        val_idx, train_idx = idx[:n_val], idx[n_val:]
+
+    train_ds = TensorDataset(torch.from_numpy(states[train_idx]),
+                             torch.from_numpy(actions[train_idx]))
+    loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
+                        num_workers=0, pin_memory=True)
+    if len(val_idx) > 0:
+        val_ds = TensorDataset(torch.from_numpy(states[val_idx]),
+                               torch.from_numpy(actions[val_idx]))
+        val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False,
+                                num_workers=0, pin_memory=True)
+    else:
+        val_loader = None
+
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs, eta_min=lr * 0.01)
+
     # 3. Supervised training loop
-    print(f"\nTraining for {epochs} epochs on {device} ...")
-    best_acc = 0.0
+    print(f"\nTraining for {epochs} epochs on {device} ({len(train_idx)} train / {len(val_idx)} val) ...")
+    best_val_acc    = -1.0
+    best_state_dict = None
     for epoch in range(1, epochs + 1):
         actor.train()
         total_loss = correct = total = 0
@@ -305,14 +333,34 @@ def pretrain(log_dir: str   = 'logs',
             correct    += (logits.argmax(1) == a_batch).sum().item()
             total      += len(a_batch)
 
-        acc = correct / total
-        if acc > best_acc:
-            best_acc = acc
-        print(f"  epoch {epoch:3d}/{epochs}  "
-              f"loss={total_loss/total:.4f}  acc={acc:.3f}"
-              + (" ★" if acc == best_acc else ""))
+        scheduler.step()
 
-    print(f"\nBest action-matching accuracy: {best_acc:.3f}")
+        # Validation pass
+        actor.eval()
+        if val_loader is not None:
+            val_correct = val_total = 0
+            with torch.no_grad():
+                for s_batch, a_batch in val_loader:
+                    s_batch = s_batch.to(device)
+                    a_batch = a_batch.to(device)
+                    val_correct += (actor(s_batch).argmax(1) == a_batch).sum().item()
+                    val_total   += len(a_batch)
+            val_acc = val_correct / val_total
+        else:
+            val_acc = train_acc = correct / total
+
+        is_best = val_acc > best_val_acc
+        if is_best:
+            best_val_acc   = val_acc
+            best_state_dict = {k: v.cpu().clone() for k, v in actor.state_dict().items()}
+
+        train_acc = correct / total
+        print(f"  epoch {epoch:3d}/{epochs}  "
+              f"loss={total_loss/total:.4f}  train={train_acc:.3f}  val={val_acc:.3f}"
+              + ("  ★" if is_best else ""))
+
+    print(f"\nBest validation accuracy: {best_val_acc:.3f}  (restoring best weights)")
+    actor.load_state_dict(best_state_dict)
 
     # 4. Save — the PPO model now carries BC-initialised actor weights.
     #    Value network weights remain random (BC only trains the actor).
