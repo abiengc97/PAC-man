@@ -719,6 +719,8 @@ void Game::runRL() {
             m_lives = 3;
             m_level = m_startLevel;
             m_rlVisitCount = {};   // clear exploration counts each episode
+            prevMoveDir = Direction::NONE;  // prevent cross-episode reversal penalty
+            prevHitWall = false;            // prevent cross-episode wall-escape reward
             startLevel();
             writeRLStep(buildStateVector(), 0.0f, false);
             continue;
@@ -801,6 +803,13 @@ void Game::runRL() {
         // Level clear: +50 (was +100)
         if (m_frameEvents.levelCleared)  reward += 50.0f;
 
+        // All shaping rewards below are computed relative to the pre-action and post-action
+        // pixel positions.  When the player dies, update() respawns Pac-Man at the start
+        // position, so pxAfter/pyAfter reflect the *respawn* location — completely unrelated
+        // to the action taken.  Applying ghost-proximity, pellet-navigation, or wall-hit
+        // rewards on a death frame would corrupt credit assignment.  Skip all shaping on
+        // death; only the flat -20 death penalty above is appropriate.
+        if (!m_frameEvents.playerDied) {
         constexpr int DANGER_RADIUS_PX = 6 * TILE_SIZE;
 
         // Wall hit penalty (unchanged)
@@ -879,6 +888,8 @@ void Game::runRL() {
             reward += 0.05f / static_cast<float>(1 + visits);
             m_rlVisitCount[pGrid.row][pGrid.col]++;
         }
+
+        } // end if (!m_frameEvents.playerDied)
 
         // End the RL episode on life loss as well as true game termination.
         // PPO learns much more reliably when "death" is a terminal signal;

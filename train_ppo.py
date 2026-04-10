@@ -36,6 +36,7 @@ from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from stable_baselines3.common.vec_env import VecNormalize
 
 # Optional experiment tracking (only used when enabled via CLI)
 try:
@@ -57,6 +58,7 @@ MAZE_ROWS       = 31
 MAZE_COLS       = 28
 MAZE_CELLS      = MAZE_ROWS * MAZE_COLS   # 868 — full maze at end of state vector
 NON_SPATIAL     = STATE_SIZE - MAZE_CELLS  # 72 — scalars / ghost info at front
+LOCAL_WINDOW_SIZE = 49  # 7×7 tile window (indices 0-48 of non_spatial); values are raw tile ints 0-6
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +123,11 @@ class PacManCNNExtractor(BaseFeaturesExtractor):
         )
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        non_spatial = observations[:, :NON_SPATIAL]
+        non_spatial = observations[:, :NON_SPATIAL].clone()
+        # The 7×7 local tile window (first LOCAL_WINDOW_SIZE floats) contains raw tile-type
+        # integers 0-6 — same scale as the full maze fed to the CNN.  Divide by 6.0 here so
+        # both paths see values in [0, 1] and the linear layer receives consistent magnitudes.
+        non_spatial[:, :LOCAL_WINDOW_SIZE] = non_spatial[:, :LOCAL_WINDOW_SIZE] / 6.0
         maze_flat   = observations[:, NON_SPATIAL:]                  # (batch, 868)
         maze_2d     = maze_flat.view(-1, 1, MAZE_ROWS, MAZE_COLS) / 6.0  # normalise 0→1
         cnn_out     = self.cnn(maze_2d)
@@ -157,6 +163,8 @@ class DualLRCallback(BaseCallback):
         self._patched = False
 
     def _on_training_start(self) -> None:
+        # Reset patched flag so optimizer is re-patched for each curriculum level's learn() call
+        self._patched = False
         self._patch_optimizer()
 
     def _patch_optimizer(self) -> None:
@@ -200,7 +208,9 @@ class PacManEnv(gym.Env):
         super().__init__()
         self.level = level
         self.observation_space = gym.spaces.Box(
-            low=-2.0, high=10.0, shape=(STATE_SIZE,), dtype=np.float32
+            # Ghost relative positions are normalised by /14; max maze delta is 30 rows → ±2.14.
+            # Use -3.0 to give safe margin without triggering SB3 out-of-bounds warnings.
+            low=-3.0, high=10.0, shape=(STATE_SIZE,), dtype=np.float32
         )
         self.action_space = gym.spaces.Discrete(N_ACTIONS)
         self._proc: subprocess.Popen | None = None
@@ -246,7 +256,8 @@ class PacManEnv(gym.Env):
         assert self._proc and self._proc.stdout
         line = self._proc.stdout.readline()
         if not line:
-            # Process died unexpectedly — return a terminal stub
+            # Process died unexpectedly — clear proc so next reset() restarts it
+            self._proc = None
             return {"state": self._last_obs.tolist(), "reward": -50.0,
                     "done": True, "lives": 0, "score": 0}
         return json.loads(line)
@@ -296,15 +307,15 @@ class PacManEnv(gym.Env):
 # (start_level, timesteps_on_this_level)
 CURRICULUM = [
     (1,  2_000_000),
-    (2,  2_000_000),
-    (3,  2_000_000),
-    (4,  2_000_000),   # bridging level — avoids hard jump from 3→5
-    (5,  3_000_000),
-    (6,  2_000_000),   # bridging level — avoids hard jump from 5→8
-    (7,  2_000_000),   # bridging level
-    (8,  3_000_000),
-    (9,  2_000_000),   # bridging level — avoids hard jump from 8→10
-    (10, 4_000_000),
+    # (2,  2_000_000),
+    # (3,  2_000_000),
+    # (4,  2_000_000),   # bridging level — avoids hard jump from 3→5
+    # (5,  3_000_000),
+    # (6,  2_000_000),   # bridging level — avoids hard jump from 5→8
+    # (7,  2_000_000),   # bridging level
+    # (8,  3_000_000),
+    # (9,  2_000_000),   # bridging level — avoids hard jump from 8→10
+    # (10, 4_000_000),
 ]
 
 
@@ -330,7 +341,7 @@ def train(
     wandb_run_name: str | None = None,
     wandb_group: str | None = None,
     wandb_tags: list[str] | None = None,
-) -> PPO:
+) -> tuple[PPO, VecNormalize | None]:
     if hp is None:
         hp = PacmanRLPPOHparams()
 
@@ -380,17 +391,20 @@ def train(
         )
 
     # ---- Build initial env & model ----------------------------------------
-    env = make_vec_env(make_env_fn(CURRICULUM[0][0]), n_envs=n_envs)
+    # Wrap with VecNormalize so the model's observation_space reflects normalised obs.
+    # This env is closed immediately after construction; curriculum loop creates fresh envs.
+    _raw_init = make_vec_env(make_env_fn(CURRICULUM[0][0]), n_envs=n_envs)
+    _init_venv = VecNormalize(_raw_init, norm_obs=True, norm_reward=True, clip_obs=10.0)
 
     if bc_init and os.path.isfile(bc_init):
         print(f"\nLoading BC pre-trained weights from {bc_init} ...")
         # Architecture must match the BC checkpoint; only override optimisation hparams.
-        model = PPO.load(bc_init, env, **common)
+        model = PPO.load(bc_init, _init_venv, **common)
         print("BC weights loaded — PPO will continue with Pacman-RL–aligned hparams.\n")
     else:
-        model = PPO("MlpPolicy", env, policy_kwargs=pkw, **common)
+        model = PPO("MlpPolicy", _init_venv, policy_kwargs=pkw, **common)
 
-    env.close()  # model only needed env for construction; curriculum loop attaches fresh envs
+    _init_venv.venv.close()  # close subprocesses; VecNormalize object is no longer needed
 
     dual_lr = DualLRCallback(
         policy_lr=hp.pi_lr,
@@ -399,6 +413,10 @@ def train(
     )
 
     # ---- Curriculum loop --------------------------------------------------
+    # venv persists across levels so that VecNormalize running stats (obs_rms, ret_rms)
+    # accumulate continuously rather than resetting with each new env.
+    venv: VecNormalize | None = None
+
     for level, timesteps in CURRICULUM:
         if wandb_enabled and wandb is not None and wandb.run is not None:
             wandb.config.update({"curriculum_level": level}, allow_val_change=True)
@@ -407,8 +425,20 @@ def train(
         print(f"  Level {level:>2}  —  {timesteps:,} steps  ({n_envs} envs)")
         print(f"{'='*55}")
 
-        env = make_vec_env(make_env_fn(level), n_envs=n_envs)
-        model.set_env(env)
+        raw_env = make_vec_env(make_env_fn(level), n_envs=n_envs)
+        if venv is None:
+            # First level: create VecNormalize fresh (stats start from zero).
+            venv = VecNormalize(raw_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
+        else:
+            # Subsequent levels: transfer accumulated obs/reward running stats to new env
+            # so normalisation remains consistent across the full curriculum.
+            new_venv = VecNormalize(raw_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
+            new_venv.obs_rms = venv.obs_rms
+            new_venv.ret_rms = venv.ret_rms
+            venv.venv.close()  # shut down old subprocesses
+            venv = new_venv
+
+        model.set_env(venv)
 
         checkpoint_cb = CheckpointCallback(
             save_freq=max(100_000 // n_envs, 1),
@@ -436,35 +466,65 @@ def train(
 
         save_path = f"models/ppo_level{level}_final"
         model.save(save_path)
-        print(f"  Saved → {save_path}.zip")
-        env.close()
+        venv.save(f"{save_path}_vecnorm.pkl")
+        print(f"  Saved → {save_path}.zip  +  {save_path}_vecnorm.pkl")
+
+    # Close the final level's subprocesses
+    if venv is not None:
+        venv.venv.close()
 
     if wandb_enabled and wandb is not None:
         wandb.finish()
 
-    return model
+    return model, venv
 
 
 # ---------------------------------------------------------------------------
 # ONNX export
 # ---------------------------------------------------------------------------
 
-def export_onnx(model: PPO, path: str = "pacman_policy.onnx") -> None:
-    """Export the policy network to ONNX with the names expected by AIAgent.h."""
+def export_onnx(
+    model: PPO,
+    path: str = "pacman_policy.onnx",
+    vec_normalize: VecNormalize | None = None,
+) -> None:
+    """Export the policy network to ONNX with the names expected by AIAgent.h.
+
+    When *vec_normalize* is supplied its running obs mean/std are baked directly
+    into the ONNX graph so the C++ runtime does not need a separate normalisation
+    step — the model accepts raw observations and normalises internally.
+    If *vec_normalize* is None the wrapper uses identity normalisation (mean=0, std=1).
+    """
+
+    if vec_normalize is not None:
+        obs_mean = torch.tensor(vec_normalize.obs_rms.mean, dtype=torch.float32)
+        obs_std  = torch.tensor(
+            np.sqrt(vec_normalize.obs_rms.var + vec_normalize.epsilon), dtype=torch.float32
+        )
+    else:
+        obs_mean = torch.zeros(STATE_SIZE, dtype=torch.float32)
+        obs_std  = torch.ones(STATE_SIZE,  dtype=torch.float32)
 
     class _PolicyWrapper(torch.nn.Module):
-        """Exports CNN extractor + actor MLP (avoids Categorical distribution tracing issues)."""
-        def __init__(self, policy):
+        """Exports VecNormalize → CNN extractor → actor MLP as a single ONNX graph.
+
+        Baking the normalisation constants in avoids Categorical distribution
+        tracing issues and keeps the C++ inference path simple.
+        """
+        def __init__(self, policy, obs_mean: torch.Tensor, obs_std: torch.Tensor):
             super().__init__()
             self.features_extractor = policy.features_extractor
             self.mlp = policy.mlp_extractor.policy_net
             self.action_net = policy.action_net
+            self.register_buffer("obs_mean", obs_mean)
+            self.register_buffer("obs_std",  obs_std)
 
         def forward(self, state: torch.Tensor) -> torch.Tensor:
+            state = ((state - self.obs_mean) / self.obs_std).clamp(-10.0, 10.0)
             features = self.features_extractor(state)
             return self.action_net(self.mlp(features))
 
-    wrapper = _PolicyWrapper(model.policy).cpu().eval()
+    wrapper = _PolicyWrapper(model.policy, obs_mean, obs_std).cpu().eval()
     dummy   = torch.zeros(1, STATE_SIZE)  # CPU
 
     torch.onnx.export(
@@ -476,7 +536,8 @@ def export_onnx(model: PPO, path: str = "pacman_policy.onnx") -> None:
         # down-convert ops (e.g., Gemm) to older opset versions.
         opset_version=18,
     )
-    print(f"Exported ONNX model → {path}")
+    norm_note = "with baked VecNormalize" if vec_normalize is not None else "without normalisation"
+    print(f"Exported ONNX model ({norm_note}) → {path}")
     print("Copy it to build/ and it will be loaded by AIAgent at runtime.")
 
 
@@ -552,21 +613,30 @@ def main():
     if args.export_only:
         # Build a fresh model with the correct architecture, then load only policy weights.
         # PPO.load fails when the checkpoint has a different optimizer group count (DualLR).
-        import zipfile, io
+        import zipfile, io, pickle
         env = make_vec_env(make_env_fn(1), n_envs=1)
         model = PPO("MlpPolicy", env, policy_kwargs=policy_kwargs_dict(), verbose=0)
         env.close()
         # Extract policy.pth from the zip and load only the policy state dict
         with zipfile.ZipFile(args.export_only, "r") as zf:
             with zf.open("policy.pth") as f:
-                params = torch.load(io.BytesIO(f.read()), map_location="cpu")
+                params = torch.load(io.BytesIO(f.read()), map_location="cpu", weights_only=True)
         model.policy.load_state_dict(params, strict=False)
         model.policy.eval()
-        export_onnx(model)
+        # Try to load the companion VecNormalize stats saved alongside the checkpoint.
+        vn: VecNormalize | None = None
+        vecnorm_path = args.export_only.replace(".zip", "_vecnorm.pkl")
+        if os.path.isfile(vecnorm_path):
+            with open(vecnorm_path, "rb") as f:
+                vn = pickle.load(f)
+            print(f"Loaded VecNormalize stats from {vecnorm_path}")
+        else:
+            print(f"No VecNormalize stats found at {vecnorm_path} — exporting without normalisation")
+        export_onnx(model, vec_normalize=vn)
     else:
         hp = hparams_from_args(args)
         tags = [t.strip() for t in args.wandb_tags.split(",") if t.strip()] if args.wandb_tags else None
-        model = train(
+        model, venv = train(
             n_envs=args.envs,
             bc_init=args.bc_init,
             hp=hp,
@@ -577,7 +647,7 @@ def main():
             wandb_group=args.wandb_group,
             wandb_tags=tags,
         )
-        export_onnx(model)
+        export_onnx(model, vec_normalize=venv)
 
 
 if __name__ == "__main__":
