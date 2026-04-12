@@ -31,6 +31,8 @@ wandb_models/
 
 ### Large / local model bundles (not tracked)
 model.zip
+bc_pretrained.zip
+pacman_policy.onnx
 
 ### Editor / OS noise (optional but useful)
 *.swp
