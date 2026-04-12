@@ -68,9 +68,9 @@ class PacmanRLPPOHparams:
 
     pi_lr: float = 1e-4           # TrainerConfig.lr
     value_lr_mult: float = 10.0   # v_lr=1e-3 vs pi_lr=1e-4 in ppo.py
-    gamma: float = 0.97           # raised from 0.9 — Pac-Man has long-horizon dependencies
+    gamma: float = 0.99           # raised from 0.9 — Pac-Man has long-horizon dependencies
                                   # (power-pellet payoff spans ~6 s; γ=0.9 discounts 20 steps to 12%)
-    gae_lambda: float = 0.995     # raised from 0.5 — less biased advantage estimates
+    gae_lambda: float = 0.95     # raised from 0.5 — less biased advantage estimates
     clip_range: float = 0.2       # Pacman-RL uses epsilon≈0.5 as clip; 0.2 is safer in SB3
     ent_coef: float = 0.03        # raised from 0.01: higher entropy prevents early collapse
                                   # into wall-hugging loops before the full maze is explored
@@ -307,7 +307,7 @@ class PacManEnv(gym.Env):
 
 # (start_level, timesteps_on_this_level)
 CURRICULUM = [
-    (1,  2_000_000),
+    (1,  20_000_000),
     # (2,  2_000_000),
     # (3,  2_000_000),
     # (4,  2_000_000),   # bridging level — avoids hard jump from 3→5
