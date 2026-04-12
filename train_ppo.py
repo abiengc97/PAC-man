@@ -11,12 +11,13 @@ the TF repo literally.
 Protocol (one JSON line per message, newline-delimited):
   Python → C++:  {"action": N}         N = 0:UP 1:DOWN 2:LEFT 3:RIGHT
   Python → C++:  {"reset": true}
-  C++    → Python: {"state":[...940 floats...], "reward":R, "done":B,
+  C++    → Python: {"state":[...89 floats...], "reward":R, "done":B,
                     "lives":L, "score":S}
 
 Usage:
-  pip install stable-baselines3 gymnasium torch
-  python train_ppo.py [--envs N] [--export-only]
+  pip install stable-baselines3 gymnasium torch wandb
+  wandb login                              # one-time auth
+  python train_ppo.py [--envs N] [--wandb] [--wandb-project pacman-rl]
 """
 
 from __future__ import annotations
@@ -35,7 +36,6 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.vec_env import VecNormalize
 
 # Optional experiment tracking (only used when enabled via CLI)
@@ -52,13 +52,10 @@ except Exception:  # pragma: no cover
 _HERE       = os.path.dirname(os.path.abspath(__file__))
 PACMAN_BIN  = os.path.join(_HERE, "build", "pacman")
 
-STATE_SIZE      = 940   # must match Game::RL_STATE_SIZE in C++
-N_ACTIONS       = 4     # UP DOWN LEFT RIGHT
-MAZE_ROWS       = 31
-MAZE_COLS       = 28
-MAZE_CELLS      = MAZE_ROWS * MAZE_COLS   # 868 — full maze at end of state vector
-NON_SPATIAL     = STATE_SIZE - MAZE_CELLS  # 72 — scalars / ghost info at front
-LOCAL_WINDOW_SIZE = 49  # 7×7 tile window (indices 0-48 of non_spatial); values are raw tile ints 0-6
+STATE_SIZE  = 89    # must match Game::RL_STATE_SIZE in C++
+N_ACTIONS   = 4     # UP DOWN LEFT RIGHT
+MAZE_ROWS   = 31    # exported for bc_pretrain.py
+MAZE_COLS   = 28    # exported for bc_pretrain.py
 
 
 # ---------------------------------------------------------------------------
@@ -73,9 +70,10 @@ class PacmanRLPPOHparams:
     value_lr_mult: float = 10.0   # v_lr=1e-3 vs pi_lr=1e-4 in ppo.py
     gamma: float = 0.97           # raised from 0.9 — Pac-Man has long-horizon dependencies
                                   # (power-pellet payoff spans ~6 s; γ=0.9 discounts 20 steps to 12%)
-    gae_lambda: float = 0.95      # raised from 0.5 — less biased advantage estimates
+    gae_lambda: float = 0.995     # raised from 0.5 — less biased advantage estimates
     clip_range: float = 0.2       # Pacman-RL uses epsilon≈0.5 as clip; 0.2 is safer in SB3
-    ent_coef: float = 0.01        # pi_loss -= 0.01 * entropy in ppo.py
+    ent_coef: float = 0.03        # raised from 0.01: higher entropy prevents early collapse
+                                  # into wall-hugging loops before the full maze is explored
     target_kl: float = 0.05       # loosened from 0.01 — 0.01 caused frequent early-stop,
                                   # barely moving the policy per update
     n_steps: int = 4096           # raised from 2048 — 8 envs × 4096 = 32k samples/update,
@@ -84,63 +82,67 @@ class PacmanRLPPOHparams:
     n_epochs: int = 10            # TF side uses up to 80 inner steps; epoch count differs
 
 
-# ---------------------------------------------------------------------------
-# CNN Feature Extractor
-# ---------------------------------------------------------------------------
-
-class PacManCNNExtractor(BaseFeaturesExtractor):
-    """
-    Splits the flat state vector into:
-      - non_spatial (72 floats): ghost positions, timers, scalars
-      - maze (868 floats → 1×31×28): full live maze layout
-
-    A small CNN processes the maze spatially; its output is concatenated
-    with the non-spatial features and fed through a linear layer.
-    """
-
-    def __init__(self, observation_space: gym.spaces.Box, features_dim: int = 256):
-        super().__init__(observation_space, features_dim)
-
-        # CNN: processes maze as (batch, 1, 31, 28)
-        # After MaxPool2d(2): 31→15, 28→14 → 7→7
-        self.cnn = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, padding=1),   # → 32×31×28
-            nn.Tanh(),
-            nn.MaxPool2d(2),                               # → 32×15×14
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),  # → 64×15×14
-            nn.Tanh(),
-            nn.MaxPool2d(2),                               # → 64×7×7
-            nn.Conv2d(64, 64, kernel_size=3, padding=1),  # → 64×7×7
-            nn.Tanh(),
-            nn.Flatten(),                                  # → 3136
-        )
-
-        cnn_out = 64 * 7 * 7  # 3136
-
-        self.linear = nn.Sequential(
-            nn.Linear(cnn_out + NON_SPATIAL, features_dim),
-            nn.Tanh(),
-        )
-
-    def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        non_spatial = observations[:, :NON_SPATIAL].clone()
-        # The 7×7 local tile window (first LOCAL_WINDOW_SIZE floats) contains raw tile-type
-        # integers 0-6 — same scale as the full maze fed to the CNN.  Divide by 6.0 here so
-        # both paths see values in [0, 1] and the linear layer receives consistent magnitudes.
-        non_spatial[:, :LOCAL_WINDOW_SIZE] = non_spatial[:, :LOCAL_WINDOW_SIZE] / 6.0
-        maze_flat   = observations[:, NON_SPATIAL:]                  # (batch, 868)
-        maze_2d     = maze_flat.view(-1, 1, MAZE_ROWS, MAZE_COLS) / 6.0  # normalise 0→1
-        cnn_out     = self.cnn(maze_2d)
-        return self.linear(torch.cat([non_spatial, cnn_out], dim=1))
-
-
 def policy_kwargs_dict() -> dict:
+    # All 89 state features are already normalised to [0, 1].
+    # A deeper MLP replaces the CNN — simpler, faster, and sufficient for
+    # a fully-observable scalar state.
     return dict(
-        features_extractor_class=PacManCNNExtractor,
-        features_extractor_kwargs=dict(features_dim=256),
-        net_arch=[256, 128],
+        net_arch=[256, 256, 128],
         activation_fn=nn.Tanh,
     )
+
+
+# ---------------------------------------------------------------------------
+# WandB game-metrics callback
+# ---------------------------------------------------------------------------
+
+class WandbGameMetricsCallback(BaseCallback):
+    """Logs PAC-man game-specific episode stats to Weights & Biases.
+
+    SB3's built-in WandbCallback only captures RL reward (ep_rew_mean) and
+    episode length.  This callback additionally tracks:
+      game/score_mean   — real Pac-Man score (not RL reward)
+      game/score_max    — best episode score in this rollout window
+      game/lives_mean   — average remaining lives when episode ended
+      game/score_std    — spread of scores (useful to detect collapse)
+
+    Scores / lives are read from info["score"] / info["lives"] which
+    PacManEnv passes on every step; Monitor stores them per-episode via
+    info["episode"]["score"] (we fall back to the step-level keys if absent).
+    """
+
+    def __init__(self, verbose: int = 0):
+        super().__init__(verbose)
+        self._ep_scores: list[float] = []
+        self._ep_lives:  list[float] = []
+
+    def _on_step(self) -> bool:
+        if wandb is None or wandb.run is None:
+            return True
+        infos = self.locals.get("infos", [])
+        for info in infos:
+            # Monitor adds info["episode"] dict when an episode finishes.
+            if "episode" in info:
+                # Prefer score stored at step level (set just before done).
+                score = info.get("score", info["episode"].get("score", 0))
+                lives = info.get("lives", info["episode"].get("lives", 0))
+                self._ep_scores.append(float(score))
+                self._ep_lives.append(float(lives))
+        return True
+
+    def _on_rollout_end(self) -> None:
+        if wandb is None or wandb.run is None or not self._ep_scores:
+            return
+        scores = np.array(self._ep_scores, dtype=np.float32)
+        lives  = np.array(self._ep_lives,  dtype=np.float32)
+        wandb.log({
+            "game/score_mean": float(scores.mean()),
+            "game/score_max":  float(scores.max()),
+            "game/score_std":  float(scores.std()),
+            "game/lives_mean": float(lives.mean()),
+        }, step=self.num_timesteps)
+        self._ep_scores.clear()
+        self._ep_lives.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -208,9 +210,8 @@ class PacManEnv(gym.Env):
         super().__init__()
         self.level = level
         self.observation_space = gym.spaces.Box(
-            # Ghost relative positions are normalised by /14; max maze delta is 30 rows → ±2.14.
-            # Use -3.0 to give safe margin without triggering SB3 out-of-bounds warnings.
-            low=-3.0, high=10.0, shape=(STATE_SIZE,), dtype=np.float32
+            # All features are normalised to [0, 1] (coordinates, ratios, flags, timers).
+            low=0.0, high=1.0, shape=(STATE_SIZE,), dtype=np.float32
         )
         self.action_space = gym.spaces.Discrete(N_ACTIONS)
         self._proc: subprocess.Popen | None = None
@@ -394,7 +395,7 @@ def train(
     # Wrap with VecNormalize so the model's observation_space reflects normalised obs.
     # This env is closed immediately after construction; curriculum loop creates fresh envs.
     _raw_init = make_vec_env(make_env_fn(CURRICULUM[0][0]), n_envs=n_envs)
-    _init_venv = VecNormalize(_raw_init, norm_obs=True, norm_reward=True, clip_obs=10.0)
+    _init_venv = VecNormalize(_raw_init, norm_obs=True, norm_reward=True, clip_obs=3.0)
 
     if bc_init and os.path.isfile(bc_init):
         print(f"\nLoading BC pre-trained weights from {bc_init} ...")
@@ -456,6 +457,7 @@ def train(
                     verbose=0,
                 )
             )
+            callbacks.append(WandbGameMetricsCallback(verbose=0))
 
         model.learn(
             total_timesteps=timesteps,
@@ -506,7 +508,7 @@ def export_onnx(
         obs_std  = torch.ones(STATE_SIZE,  dtype=torch.float32)
 
     class _PolicyWrapper(torch.nn.Module):
-        """Exports VecNormalize → CNN extractor → actor MLP as a single ONNX graph.
+        """Bakes VecNormalize stats + actor MLP into a single ONNX graph.
 
         Baking the normalisation constants in avoids Categorical distribution
         tracing issues and keeps the C++ inference path simple.

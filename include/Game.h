@@ -109,10 +109,21 @@ private:
     int       m_startLevel = 1;
     Direction m_rlAction   = Direction::NONE;
 
-    static constexpr int RL_STATE_SIZE = 940; // full 31x28 maze (868) + 7x7 local window (49)
-                                               // + 8 ghost pos + 2 scalars + 4 is_frightened
-                                               // + 4 frightened_timer + chase_mode + mode_timer
-                                               // + power_pellet_dir(2) + visit_novelty
+    // State layout (89 floats, all values normalised to [0, 1]):
+    //   [0-1]   player row/30, col/27
+    //   [2-9]   4× ghost row/30, col/27
+    //   [10-13] 4× ghost is_frightened
+    //   [14-17] 4× ghost frightened_timer / 360
+    //   [18-21] 4× ghost is_in_house
+    //   [22]    chase_mode
+    //   [23]    mode_timer / 1200
+    //   [24]    remaining_pellets / total_pellets
+    //   [25]    ghost_eat_combo / 4
+    //   [26-27] nearest pellet row/30, col/27
+    //   [28-31] nearest pellet distance N/S/W/E (steps/30; 1.0 = wall/no pellet)
+    //   [32-39] 4× power pellet row/30, col/27 (0,0 if consumed)
+    //   [40-88] 7×7 local tile window / 7.0
+    static constexpr int RL_STATE_SIZE = 89;
 
     void  runRL();
     std::array<float, RL_STATE_SIZE> buildStateVector() const;

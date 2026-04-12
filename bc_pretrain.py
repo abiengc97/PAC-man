@@ -1,8 +1,8 @@
 """
 Behavioural Cloning pre-training from imitation log files.
 
-Parses logs/imitation_*.jsonl, reconstructs the exact 940-float state vector
-used during RL training, trains the CNN policy to mimic recorded actions, then
+Parses logs/imitation_*.jsonl, reconstructs the exact 89-float state vector
+used during RL training, trains the MLP policy to mimic recorded actions, then
 saves bc_pretrained.zip which train_ppo.py loads as the PPO starting point.
 
 Usage:
@@ -22,8 +22,8 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 
 from train_ppo import (
-    PacManCNNExtractor, make_env_fn,
-    STATE_SIZE, N_ACTIONS, MAZE_ROWS, MAZE_COLS, NON_SPATIAL,
+    make_env_fn, policy_kwargs_dict,
+    STATE_SIZE, N_ACTIONS, MAZE_ROWS, MAZE_COLS,
 )
 
 # ------------------------------------------------------------------ constants
@@ -77,9 +77,25 @@ def count_total_pellets(grid: list[list[int]]) -> int:
 # ------------------------------------------------------------------ state reconstruction
 
 def build_state(frame: dict, maze: list[list[int]],
-                visit_count: dict, frightened_timers: list[int],
+                frightened_timers: list[int],
                 total_pellets: int) -> list[float]:
-    """Reconstruct the 940-float state vector from a single log frame."""
+    """Reconstruct the 89-float state vector from a single log frame.
+
+    Layout mirrors Game::buildStateVector() in Game.cpp exactly:
+      [0-1]   player row/30, col/27
+      [2-9]   4× ghost row/30, col/27
+      [10-13] 4× ghost is_frightened
+      [14-17] 4× ghost frightened_timer / 360
+      [18-21] 4× ghost is_in_house
+      [22]    chase_mode
+      [23]    mode_timer / 1200
+      [24]    remaining_pellets_ratio
+      [25]    ghost_eat_combo / 4
+      [26-27] nearest pellet row/30, col/27
+      [28-31] nearest pellet distance N/S/W/E (steps/30; 1.0 = wall/no pellet)
+      [32-39] 4× power pellet row/30, col/27 (0,0 if consumed)
+      [40-88] 7×7 local tile window / 7.0
+    """
     pb      = frame['player_before']
     pr, pc  = pb['grid']['row'], pb['grid']['col']
     ghosts  = frame['ghosts_before']
@@ -91,67 +107,83 @@ def build_state(frame: dict, maze: list[list[int]],
 
     state: list[float] = []
 
-    # [0-48]  7×7 tile window centred on Pac-Man
+    # [0-1] player absolute position
+    state.append(pr / 30.0)
+    state.append(pc / 27.0)
+
+    # [2-9] ghost absolute positions
+    for g in ghosts:
+        state.append(g['grid']['row'] / 30.0)
+        state.append(g['grid']['col'] / 27.0)
+
+    # [10-13] per-ghost is_frightened
+    for g in ghosts:
+        state.append(1.0 if g['mode'] == 'frightened' else 0.0)
+
+    # [14-17] per-ghost frightened timer
+    for t in frightened_timers:
+        state.append(t / float(FRIGHTENED_DURATION))
+
+    # [18-21] per-ghost is_in_house
+    for g in ghosts:
+        state.append(1.0 if g.get('in_house', False) else 0.0)
+
+    # [22] chase mode  [23] mode timer
+    state.append(1.0 if is_chase else 0.0)
+    state.append(mode_timer / 1200.0)
+
+    # [24] remaining pellets ratio  [25] ghost eat combo
+    state.append(remaining / max(1.0, total_pellets))
+    state.append(combo / 4.0)
+
+    # [26-27] nearest pellet absolute position
+    best_d = float('inf')
+    npr, npc_v = 0.0, 0.0
+    for r in range(MAZE_ROWS):
+        for c in range(MAZE_COLS):
+            if maze[r][c] in (PELLET, POWER):
+                d = abs(r - pr) + abs(c - pc)
+                if d < best_d:
+                    best_d = d
+                    npr = r / 30.0
+                    npc_v = c / 27.0
+    state.append(npr)
+    state.append(npc_v)
+
+    # [28-31] nearest pellet in each cardinal direction (N, S, W, E)
+    def scan_dir(dr: int, dc: int) -> float:
+        for step in range(1, 31):
+            r, c = pr + dr * step, pc + dc * step
+            if not (0 <= r < MAZE_ROWS and 0 <= c < MAZE_COLS):
+                break
+            t = maze[r][c]
+            if t == WALL:
+                break
+            if t in (PELLET, POWER):
+                return step / 30.0
+        return 1.0
+
+    state.append(scan_dir(-1,  0))  # North
+    state.append(scan_dir( 1,  0))  # South
+    state.append(scan_dir( 0, -1))  # West
+    state.append(scan_dir( 0,  1))  # East
+
+    # [32-39] power pellet positions (up to 4 slots, pad with 0 if eaten)
+    pp_slots = [(pp['row'] / 30.0, pp['col'] / 27.0) for pp in power_pps[:4]]
+    while len(pp_slots) < 4:
+        pp_slots.append((0.0, 0.0))
+    for r_norm, c_norm in pp_slots:
+        state.append(r_norm)
+        state.append(c_norm)
+
+    # [40-88] 7×7 local tile window (normalised by 7.0)
     for dr in range(-3, 4):
         for dc in range(-3, 4):
             r, c = pr + dr, pc + dc
             if 0 <= r < MAZE_ROWS and 0 <= c < MAZE_COLS:
-                state.append(float(maze[r][c]))
+                state.append(maze[r][c] / 7.0)
             else:
-                state.append(float(WALL))
-
-    # [49-56] per-ghost relative grid position (÷14)
-    for g in ghosts:
-        state.append((g['grid']['row'] - pr) / 14.0)
-        state.append((g['grid']['col'] - pc) / 14.0)
-
-    # [57]    remaining pellets ratio
-    state.append(remaining / max(1.0, total_pellets))
-
-    # [58]    ghost eat combo ÷ 4
-    state.append(combo / 4.0)
-
-    # [59-62] per-ghost is_frightened flag
-    for g in ghosts:
-        state.append(1.0 if g['mode'] == 'frightened' else 0.0)
-
-    # [63-66] per-ghost frightened timer (tracked from ate_power_pellet events)
-    for t in frightened_timers:
-        state.append(t / float(FRIGHTENED_DURATION))
-
-    # [67]    global chase/scatter flag
-    state.append(1.0 if is_chase else 0.0)
-
-    # [68]    mode timer ÷ 1200
-    state.append(mode_timer / 1200.0)
-
-    # [69-70] direction to nearest power pellet (÷14); (0,0) if none left
-    if power_pps:
-        best_d = float('inf')
-        pdx = pdy = 0.0
-        for pp in power_pps:
-            dr = pp['row'] - pr
-            dc = pp['col'] - pc
-            d  = abs(dr) + abs(dc)
-            if d < best_d:
-                best_d = d
-                pdx = dc / 14.0
-                pdy = dr / 14.0
-        state.append(pdx)
-        state.append(pdy)
-    else:
-        state.append(0.0)
-        state.append(0.0)
-
-    # [71]    visit novelty at current tile
-    v = visit_count.get((pr, pc), 0)
-    state.append(1.0 / (1 + v))
-    visit_count[(pr, pc)] = v + 1
-
-    # [72-939] full 31×28 maze (row-major)
-    for row in maze:
-        for t in row:
-            state.append(float(t))
+                state.append(0.0)
 
     assert len(state) == STATE_SIZE, \
         f"State size mismatch: got {len(state)}, expected {STATE_SIZE}"
@@ -177,7 +209,6 @@ def parse_logs(log_dir: str, level_path: str):
         # Per-session mutable state
         maze              = load_maze(level_path)
         total_pellets     = count_total_pellets(maze)
-        visit_count: dict = {}
         frightened_timers = [0, 0, 0, 0]
         frames_added      = 0
         last_action: int | None = None   # carry-forward for 'none' frames
@@ -203,7 +234,7 @@ def parse_logs(log_dir: str, level_path: str):
                     continue   # very first frame has no prior action; skip
 
                 # ---- build state from log data
-                state  = build_state(d, maze, visit_count, frightened_timers, total_pellets)
+                state  = build_state(d, maze, frightened_timers, total_pellets)
                 all_states.append(state)
                 all_actions.append(action)
                 frames_added += 1
@@ -224,11 +255,9 @@ def parse_logs(log_dir: str, level_path: str):
 
                 # ---- reset per-life / per-level state
                 if events['player_died']:
-                    visit_count       = {}
                     frightened_timers = [0, 0, 0, 0]
                 if events['level_cleared']:
                     maze              = load_maze(level_path)
-                    visit_count       = {}
                     frightened_timers = [0, 0, 0, 0]
 
         print(f"{frames_added} frames")
@@ -273,11 +302,7 @@ def pretrain(log_dir: str   = 'logs',
     env   = make_vec_env(make_env_fn(1), n_envs=1)
     model = PPO(
         "MlpPolicy", env,
-        policy_kwargs=dict(
-            features_extractor_class=PacManCNNExtractor,
-            features_extractor_kwargs=dict(features_dim=256),
-            net_arch=[256, 128],
-        ),
+        policy_kwargs=policy_kwargs_dict(),
         verbose=0,
     )
     env.close()
