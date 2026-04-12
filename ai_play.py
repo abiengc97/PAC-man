@@ -82,17 +82,23 @@ def play(model_path: str, level: int, max_episodes: int) -> None:
             episode_score = data["score"]
 
             if data["done"]:
-                total_score += episode_score
-                print(f"Episode {episode:>4}  score={episode_score:>6}  lives={data['lives']}")
-                episode += 1
+                lives = data["lives"]
+                if lives > 0:
+                    # Life lost but game continues — just keep playing, player will respawn
+                    print(f"  Life lost — {lives} remaining  (score so far: {episode_score})")
+                else:
+                    # True game over (all lives gone)
+                    total_score += episode_score
+                    print(f"Episode {episode:>4}  score={episode_score:>6}  lives=0")
+                    episode += 1
 
-                if max_episodes > 0 and episode > max_episodes:
-                    break
+                    if max_episodes > 0 and episode > max_episodes:
+                        break
 
-                # Reset for next episode
-                send('{"reset":true}')
-                data = recv()
-                obs  = np.array(data["state"], dtype=np.float32)
+                    # Reset for next episode
+                    send('{"reset":true}')
+                    data = recv()
+                    obs  = np.array(data["state"], dtype=np.float32)
 
     except (EOFError, BrokenPipeError, KeyboardInterrupt):
         pass

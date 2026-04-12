@@ -283,10 +283,14 @@ class PacManEnv(gym.Env):
 
         obs        = np.array(data["state"], dtype=np.float32)
         reward     = float(data["reward"])
-        terminated = bool(data["done"])
+        lives      = int(data["lives"])
+        # Only end the episode on true game over (all lives gone).
+        # Life-loss events (done=True, lives>0) are NOT terminal here — the
+        # C++ game will respawn the player automatically on the next step.
+        terminated = bool(data["done"]) and lives <= 0
         self._step_count += 1
         truncated  = self._step_count >= self.MAX_STEPS
-        info       = {"lives": data["lives"], "score": data["score"]}
+        info       = {"lives": lives, "score": data["score"]}
 
         self._last_obs = obs
         return obs, reward, terminated, truncated, info
@@ -307,7 +311,7 @@ class PacManEnv(gym.Env):
 
 # (start_level, timesteps_on_this_level)
 CURRICULUM = [
-    (1,  20_000_000),
+    (1,  40_000_000),
     # (2,  2_000_000),
     # (3,  2_000_000),
     # (4,  2_000_000),   # bridging level — avoids hard jump from 3→5
@@ -335,6 +339,7 @@ def make_env_fn(level: int):
 def train(
     n_envs: int = 8,
     bc_init: str | None = None,
+    resume: str | None = None,
     hp: PacmanRLPPOHparams | None = None,
     wandb_enabled: bool = False,
     wandb_project: str = "pacman-rl",
@@ -397,7 +402,35 @@ def train(
     _raw_init = make_vec_env(make_env_fn(CURRICULUM[0][0]), n_envs=n_envs)
     _init_venv = VecNormalize(_raw_init, norm_obs=True, norm_reward=True, clip_obs=3.0)
 
-    if bc_init and os.path.isfile(bc_init):
+    _resume_vn: VecNormalize | None = None  # VecNormalize stats from resumed checkpoint
+
+    if resume and os.path.isfile(resume):
+        import zipfile, io, pickle, json as _json
+        print(f"\nResuming from checkpoint: {resume}")
+        # PPO.load() fails when the checkpoint was saved with DualLR's two optimizer
+        # param groups.  Workaround: build a fresh model then load only policy weights.
+        model = PPO("MlpPolicy", _init_venv, policy_kwargs=pkw, **common)
+        with zipfile.ZipFile(resume, "r") as zf:
+            with zf.open("policy.pth") as f:
+                params = torch.load(io.BytesIO(f.read()), map_location="cpu", weights_only=True)
+            # Restore the global timestep counter so logging/callbacks stay consistent.
+            try:
+                with zf.open("data") as f:
+                    meta = _json.loads(f.read())
+                model.num_timesteps = int(meta.get("num_timesteps", 0))
+            except Exception:
+                pass
+        model.policy.load_state_dict(params, strict=False)
+        print(f"  Policy weights loaded  (num_timesteps={model.num_timesteps:,})")
+        # Restore VecNormalize running stats so normalisation stays consistent.
+        vecnorm_path = resume.replace(".zip", "_vecnorm.pkl")
+        if os.path.isfile(vecnorm_path):
+            with open(vecnorm_path, "rb") as f:
+                _resume_vn = pickle.load(f)
+            print(f"  VecNormalize stats loaded from {vecnorm_path}")
+        else:
+            print(f"  No VecNormalize stats found at {vecnorm_path} — starting normalisation fresh")
+    elif bc_init and os.path.isfile(bc_init):
         print(f"\nLoading BC pre-trained weights from {bc_init} ...")
         # Architecture must match the BC checkpoint; only override optimisation hparams.
         model = PPO.load(bc_init, _init_venv, **common)
@@ -428,8 +461,11 @@ def train(
 
         raw_env = make_vec_env(make_env_fn(level), n_envs=n_envs)
         if venv is None:
-            # First level: create VecNormalize fresh (stats start from zero).
+            # First level: create VecNormalize, restoring stats from resumed checkpoint if any.
             venv = VecNormalize(raw_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
+            if _resume_vn is not None:
+                venv.obs_rms = _resume_vn.obs_rms
+                venv.ret_rms = _resume_vn.ret_rms
         else:
             # Subsequent levels: transfer accumulated obs/reward running stats to new env
             # so normalisation remains consistent across the full curriculum.
@@ -573,6 +609,10 @@ def main():
     parser.add_argument("--bc-init",    type=str,  default=None,
                         metavar="BC_ZIP",
                         help="BC pre-trained weights to load before PPO (from bc_pretrain.py)")
+    parser.add_argument("--resume",     type=str,  default=None,
+                        metavar="CHECKPOINT_ZIP",
+                        help="Resume training from a saved checkpoint (e.g. models/ppo_level1_final.zip). "
+                             "Also loads the companion _vecnorm.pkl if present.")
     d = PacmanRLPPOHparams()
     parser.add_argument("--lr", type=float, default=d.pi_lr,
                         help=f"Policy LR (Pacman-RL TrainerConfig.lr, default {d.pi_lr})")
@@ -641,6 +681,7 @@ def main():
         model, venv = train(
             n_envs=args.envs,
             bc_init=args.bc_init,
+            resume=args.resume,
             hp=hp,
             wandb_enabled=args.wandb,
             wandb_project=args.wandb_project,
