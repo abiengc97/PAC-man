@@ -738,19 +738,29 @@ void Game::runRL() {
         const int scoreBefore = m_score;
         const Uint32 frameStart = m_rlRender ? SDL_GetTicks() : 0;
 
-        // --- Snapshot pixel state before update for reward shaping ---
+        // --- Snapshot state BEFORE update for reward shaping ---
         const int pxBefore = m_player.getPixelX();
         const int pyBefore = m_player.getPixelY();
 
-        // Nearest dangerous ghost pixel distance (ignore frightened / eaten / in-house)
+        // Snapshot ghost pixel positions before they move this frame
+        struct GhostSnap { int px, py; bool dangerous; };
+        std::array<GhostSnap, 4> ghostSnap;
+        for (std::size_t i = 0; i < m_ghosts.size(); ++i) {
+            const auto& g = m_ghosts[i];
+            ghostSnap[i] = {
+                g.getPixelX(), g.getPixelY(),
+                !g.isInHouse() &&
+                g.getMode() != GhostMode::FRIGHTENED &&
+                g.getMode() != GhostMode::EATEN
+            };
+        }
+
+        // Nearest dangerous ghost pixel distance (using pre-update positions)
         auto dangerPixDist = [&](int px, int py) {
             int d = 9999;
-            for (const auto& g : m_ghosts) {
-                if (g.isInHouse()) continue;
-                if (g.getMode() == GhostMode::FRIGHTENED) continue;
-                if (g.getMode() == GhostMode::EATEN)      continue;
-                int md = std::abs(g.getPixelX() - px) + std::abs(g.getPixelY() - py);
-                d = std::min(d, md);
+            for (const auto& s : ghostSnap) {
+                if (!s.dangerous) continue;
+                d = std::min(d, std::abs(s.px - px) + std::abs(s.py - py));
             }
             return d;
         };
@@ -770,7 +780,23 @@ void Game::runRL() {
             return d;
         };
 
-        const int pelletDistBefore = pelletPixDist(pxBefore, pyBefore);
+        // Nearest power pellet distance
+        auto powerPelletDist = [&](int px, int py) {
+            int d = 999999;
+            for (int r = 0; r < MAZE_ROWS; ++r)
+                for (int c = 0; c < MAZE_COLS; ++c) {
+                    if (m_maze.getTile(r, c) == TileType::POWER) {
+                        int tx = c * TILE_SIZE + TILE_SIZE / 2;
+                        int ty = r * TILE_SIZE + TILE_SIZE / 2;
+                        d = std::min(d, std::abs(tx - px) + std::abs(ty - py));
+                    }
+                }
+            return d;
+        };
+
+        const int pelletDistBefore   = pelletPixDist(pxBefore, pyBefore);
+        const int powerDistBefore    = powerPelletDist(pxBefore, pyBefore);
+        const int dangerDistBefore   = dangerPixDist(pxBefore, pyBefore);
 
         processInput();  // applies m_rlAction to player
         update();
@@ -789,73 +815,73 @@ void Game::runRL() {
         // Wall hit: pixel position unchanged means player couldn't move
         const bool hitWall = (pxBefore == pxAfter && pyBefore == pyAfter);
 
-        const int pelletDistAfter = pelletPixDist(pxAfter, pyAfter);
-
-        // --- Base rewards (scaled to match Pacman-RL magnitude) ---
-        // Score delta: pellet=10pts→+1.0, ghost eat=200pts→+20.0 (÷10 but ×10 scale = same ÷1)
+        // --- Base rewards ---
+        // Score delta: pellet=10pts→+2.0, ghost eat=200pts→+40.0 (×2 to dominate ghost penalty)
         const float scoreDelta = static_cast<float>(m_score - scoreBefore) / 10.0f;
-        float reward = scoreDelta * 1.0f;
+        float reward = scoreDelta * 2.0f;
 
-        // Death: -20 (was -50; too large → agent too conservative, avoids all risk)
-        if (m_frameEvents.playerDied)    reward -= 20.0f;
-        // Level clear: +50 (was +100)
-        if (m_frameEvents.levelCleared)  reward += 50.0f;
+        // Small survival bonus: incentivises staying alive over quick death
+        reward += 0.01f;
+
+        // Death: -20
+        if (m_frameEvents.playerDied)   reward -= 20.0f;
+        // Level clear: +100 (raised from 50 — strong terminal incentive to clear the board)
+        if (m_frameEvents.levelCleared) reward += 100.0f;
 
         constexpr int DANGER_RADIUS_PX = 6 * TILE_SIZE;
+        constexpr int CHASE_RADIUS_PX  = 5 * TILE_SIZE;
 
-        // Wall hit penalty (unchanged)
-        if (hitWall) reward -= 0.5f;
-
-        // Wall escape reward (unchanged)
+        // Wall hit / escape
+        if (hitWall)              reward -= 0.5f;
         if (prevHitWall && !hitWall) reward += 0.3f;
         prevHitWall = hitWall;
 
-        // Explicit ghost evasion delta (reduced: 0.15→0.08 to balance vs pellet rewards)
-        for (const auto& g : m_ghosts) {
-            if (g.isInHouse()) continue;
-            if (g.getMode() == GhostMode::FRIGHTENED) continue;
-            if (g.getMode() == GhostMode::EATEN)      continue;
-            const int gdBefore = std::abs(g.getPixelX() - pxBefore) + std::abs(g.getPixelY() - pyBefore);
-            const int gdAfter  = std::abs(g.getPixelX() - pxAfter)  + std::abs(g.getPixelY() - pyAfter);
+        // Ghost evasion delta — uses pre-update ghost positions so we measure
+        // how pac-man's movement changed distance to where the ghost WAS,
+        // not where it ended up after its own move this frame.
+        for (const auto& s : ghostSnap) {
+            if (!s.dangerous) continue;
+            const int gdBefore = std::abs(s.px - pxBefore) + std::abs(s.py - pyBefore);
+            const int gdAfter  = std::abs(s.px - pxAfter)  + std::abs(s.py - pyAfter);
             if (gdBefore < DANGER_RADIUS_PX || gdAfter < DANGER_RADIUS_PX) {
                 reward += static_cast<float>(gdAfter - gdBefore) * (0.08f / TILE_SIZE);
             }
         }
 
-        // Direction reversal penalty (suppressed when danger close)
-        const bool isDangerClose = (dangerPixDist(pxAfter, pyAfter) < 3 * TILE_SIZE);
+        // Direction reversal penalty — suppressed in a wider danger zone (5 tiles, was 3)
+        const bool isDangerClose = (dangerDistBefore < 5 * TILE_SIZE);
         if (!isDangerClose && prevMoveDir != Direction::NONE) {
             const bool reversed =
                 (prevMoveDir == Direction::UP    && m_rlAction == Direction::DOWN)  ||
                 (prevMoveDir == Direction::DOWN   && m_rlAction == Direction::UP)   ||
                 (prevMoveDir == Direction::LEFT   && m_rlAction == Direction::RIGHT) ||
                 (prevMoveDir == Direction::RIGHT  && m_rlAction == Direction::LEFT);
-            if (reversed) reward -= 0.2f;  // reduced 0.4→0.2
+            if (reversed) reward -= 0.2f;
         }
         if (m_player.getDirection() != Direction::NONE)
             prevMoveDir = m_player.getDirection();
 
-        // Per-ghost shaped rewards (reduced magnitude to balance vs pellet eating)
-        constexpr int CHASE_RADIUS_PX = 5 * TILE_SIZE;
+        // Per-ghost proximity rewards
         for (const auto& g : m_ghosts) {
             if (g.isInHouse()) continue;
             const int gd = std::abs(g.getPixelX() - pxAfter) + std::abs(g.getPixelY() - pyAfter);
             if (g.getMode() == GhostMode::FRIGHTENED) {
-                // Chase frightened ghost: max +1.0 (was +1.5)
+                // Chase frightened ghost: max +1.0
                 if (gd < CHASE_RADIUS_PX) {
                     float ratio = 1.0f - static_cast<float>(gd) / CHASE_RADIUS_PX;
                     reward += ratio * 1.0f;
                 }
             } else if (g.getMode() != GhostMode::EATEN) {
-                // Quadratic danger penalty: max -1.0 (was -2.0; too dominant)
+                // Quadratic danger penalty: max -0.3 per ghost (reduced from -1.0 to allow pellet
+                // eating near ghosts — score delta already provides the primary signal)
                 if (gd < DANGER_RADIUS_PX) {
                     float ratio = 1.0f - static_cast<float>(gd) / static_cast<float>(DANGER_RADIUS_PX);
-                    reward -= ratio * ratio * 1.0f;
+                    reward -= ratio * ratio * 0.3f;
                 }
             }
         }
 
-        // Power pellet bonus (reduced: 2.0+2n → 1.0+1n; still incentivises eating near ghosts)
+        // Power pellet bonus on eat (ghost combo bonus)
         if (m_frameEvents.atePowerPellet) {
             int nearCount = 0;
             for (const auto& g : m_ghosts) {
@@ -866,13 +892,32 @@ void Game::runRL() {
             reward += 1.0f + nearCount * 1.0f;
         }
 
-        // Pellet navigation: coeff raised 0.05→0.15 to compete with ghost danger penalty
-        if (m_maze.getRemainingPellets() > 0 && pelletDistBefore < 999999) {
+        // Power pellet approach reward when in danger: teach "run to power pellet"
+        // Only fires when a dangerous ghost is within DANGER_RADIUS and power pellets remain.
+        if (dangerDistBefore < DANGER_RADIUS_PX && powerDistBefore < 999999) {
+            const int powerDistAfter = powerPelletDist(pxAfter, pyAfter);
+            if (!m_frameEvents.atePowerPellet) {  // eat bonus already handled above
+                reward += static_cast<float>(powerDistBefore - powerDistAfter)
+                          * (0.2f / TILE_SIZE);
+            }
+        }
+
+        // Pellet navigation shaping — suppressed only in very tight danger (3 tiles) so the
+        // agent still navigates toward pellets when ghosts are patrolling nearby.
+        // Also skipped on eat frames to avoid the spike from next-nearest pellet jump.
+        const bool inDanger = (dangerDistBefore < 3 * TILE_SIZE);
+        if (!inDanger && !m_frameEvents.atePellet && !m_frameEvents.atePowerPellet &&
+            m_maze.getRemainingPellets() > 0 && pelletDistBefore < 999999) {
+            const int pelletDistAfter = pelletPixDist(pxAfter, pyAfter);
             reward += static_cast<float>(pelletDistBefore - pelletDistAfter)
                       * (0.15f / TILE_SIZE);
         }
 
-        // Exploration novelty (unchanged)
+        // Time-pressure penalty removed: the score delta (×2 per pellet) + level-clear bonus (+100)
+        // provide sufficient urgency. Time-pressure was accumulating to ~-130/episode over 1600
+        // steps and drowning all positive pellet-eating signals, causing a plateau at ep_rew≈-40.
+
+        // Exploration novelty
         {
             const GridPos pGrid = m_player.getPos();
             const int visits = m_rlVisitCount[pGrid.row][pGrid.col];
@@ -917,31 +962,43 @@ std::array<float, Game::RL_STATE_SIZE> Game::buildStateVector() const {
     }
     // idx == 57
 
+    // 8 floats: per-ghost direction as unit vector (dx, dy); (0,0) when NONE/in-house
+    for (const auto& ghost : m_ghosts) {
+        switch (ghost.getDirection()) {
+            case Direction::UP:    state[idx++] =  0.0f; state[idx++] = -1.0f; break;
+            case Direction::DOWN:  state[idx++] =  0.0f; state[idx++] =  1.0f; break;
+            case Direction::LEFT:  state[idx++] = -1.0f; state[idx++] =  0.0f; break;
+            case Direction::RIGHT: state[idx++] =  1.0f; state[idx++] =  0.0f; break;
+            default:               state[idx++] =  0.0f; state[idx++] =  0.0f; break;
+        }
+    }
+    // idx == 65
+
     // 2 scalars
     state[idx++] = static_cast<float>(m_maze.getRemainingPellets()) /
                    static_cast<float>(std::max(1, m_maze.getTotalPellets()));
     state[idx++] = static_cast<float>(m_ghostEatCombo) / 4.0f;
-    // idx == 59
+    // idx == 67
 
     // 4 floats: per-ghost is_frightened flag
     for (const auto& ghost : m_ghosts) {
         state[idx++] = (ghost.getMode() == GhostMode::FRIGHTENED) ? 1.0f : 0.0f;
     }
-    // idx == 63
+    // idx == 71
 
     // 4 floats: per-ghost frightened timer normalized (classic max ≈ 360 ticks @ 60fps)
     constexpr float FRIGHTENED_TICKS = 360.0f;
     for (const auto& ghost : m_ghosts) {
         state[idx++] = static_cast<float>(ghost.getFrightenedTimer()) / FRIGHTENED_TICKS;
     }
-    // idx == 67
+    // idx == 75
 
     // 1 float: global chase/scatter mode (1 = chase, 0 = scatter)
     state[idx++] = m_isChaseMode ? 1.0f : 0.0f;
 
     // 1 float: mode timer normalized (chase phase max = 1200 ticks)
     state[idx++] = static_cast<float>(m_modeTimer) / 1200.0f;
-    // idx == 69
+    // idx == 77
 
     // 2 floats: direction vector to nearest power pellet (dx/14, dy/14); (0,0) if none left
     {
@@ -964,18 +1021,29 @@ std::array<float, Game::RL_STATE_SIZE> Game::buildStateVector() const {
         state[idx++] = pdx;
         state[idx++] = pdy;
     }
-    // idx == 71
+    // idx == 79
 
     // 1 float: visit novelty at current tile — 1/(1+visits), high when rarely visited
     state[idx++] = 1.0f / static_cast<float>(1 + m_rlVisitCount[pPos.row][pPos.col]);
-    // idx == 72
+    // idx == 80
+
+    // 2 floats: Pac-Man absolute grid position, normalised to [0,1)
+    state[idx++] = static_cast<float>(pPos.row) / static_cast<float>(MAZE_ROWS);
+    state[idx++] = static_cast<float>(pPos.col) / static_cast<float>(MAZE_COLS);
+    // idx == 82
+
+    // 4 floats: per-ghost in_house flag (1 = still in ghost house, 0 = on maze)
+    for (const auto& ghost : m_ghosts) {
+        state[idx++] = ghost.isInHouse() ? 1.0f : 0.0f;
+    }
+    // idx == 86
 
     // 868 floats: full 31×28 maze layout (row-major)
     // Tile values: WALL=0 EMPTY=1 PELLET=2 POWER=3 GHOST_HOUSE=4 GHOST_DOOR=5 TUNNEL=6
     for (int r = 0; r < MAZE_ROWS; ++r)
         for (int c = 0; c < MAZE_COLS; ++c)
             state[idx++] = static_cast<float>(m_maze.getTile(r, c));
-    // idx == 940
+    // idx == 954
 
     return state;
 }

@@ -109,10 +109,13 @@ private:
     int       m_startLevel = 1;
     Direction m_rlAction   = Direction::NONE;
 
-    static constexpr int RL_STATE_SIZE = 940; // full 31x28 maze (868) + 7x7 local window (49)
-                                               // + 8 ghost pos + 2 scalars + 4 is_frightened
-                                               // + 4 frightened_timer + chase_mode + mode_timer
+    static constexpr int RL_STATE_SIZE = 954; // full 31x28 maze (868) + 7x7 local window (49)
+                                               // + 8 ghost pos + 8 ghost dir + 2 scalars
+                                               // + 4 is_frightened + 4 frightened_timer
+                                               // + chase_mode + mode_timer
                                                // + power_pellet_dir(2) + visit_novelty
+                                               // + pac_row + pac_col (absolute, normalised)
+                                               // + 4 in_house flags
 
     void  runRL();
     std::array<float, RL_STATE_SIZE> buildStateVector() const;

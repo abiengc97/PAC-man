@@ -51,12 +51,29 @@ except Exception:  # pragma: no cover
 _HERE       = os.path.dirname(os.path.abspath(__file__))
 PACMAN_BIN  = os.path.join(_HERE, "build", "pacman")
 
-STATE_SIZE      = 940   # must match Game::RL_STATE_SIZE in C++
+STATE_SIZE      = 954   # must match Game::RL_STATE_SIZE in C++
 N_ACTIONS       = 4     # UP DOWN LEFT RIGHT
 MAZE_ROWS       = 31
 MAZE_COLS       = 28
 MAZE_CELLS      = MAZE_ROWS * MAZE_COLS   # 868 — full maze at end of state vector
-NON_SPATIAL     = STATE_SIZE - MAZE_CELLS  # 72 — scalars / ghost info at front
+NON_SPATIAL     = STATE_SIZE - MAZE_CELLS  # 86 — scalars / ghost info at front
+
+# Non-spatial layout (offsets into the 86-float prefix):
+#   [0:49]   7×7 local tile window centred on Pac-Man
+#   [49:57]  ghost relative positions (4 ghosts × 2: row_delta, col_delta)
+#   [57:65]  ghost direction unit vectors (4 ghosts × 2: dx, dy)
+#   [65:67]  pellet fraction remaining, ghost-eat combo
+#   [67:71]  per-ghost is_frightened flags
+#   [71:75]  per-ghost frightened timers
+#   [75:77]  global chase mode flag, mode timer
+#   [77:79]  direction to nearest power pellet
+#   [79]     visit novelty
+#   [80:82]  Pac-Man absolute grid pos, normalised (row/31, col/28)
+#   [82:86]  per-ghost in_house flags
+N_GHOSTS        = 4
+LOCAL_WIN       = 7 * 7          # 49
+GHOST_VEC_START = LOCAL_WIN      # 49  — ghost pos (8) + ghost dir (8) = 16 floats
+GHOST_FEAT_DIM  = 4              # per ghost: (row_delta, col_delta, dir_dx, dir_dy)
 
 
 # ---------------------------------------------------------------------------
@@ -73,9 +90,11 @@ class PacmanRLPPOHparams:
                                   # (power-pellet payoff spans ~6 s; γ=0.9 discounts 20 steps to 12%)
     gae_lambda: float = 0.95      # raised from 0.5 — less biased advantage estimates
     clip_range: float = 0.2       # Pacman-RL uses epsilon≈0.5 as clip; 0.2 is safer in SB3
-    ent_coef: float = 0.01        # pi_loss -= 0.01 * entropy in ppo.py
-    target_kl: float = 0.05       # loosened from 0.01 — 0.01 caused frequent early-stop,
-                                  # barely moving the policy per update
+    ent_coef: float = 0.03        # raised from 0.02 — break plateau; reward rebalance makes
+                                  # eating pellets near ghosts worthwhile, need more exploration
+    target_kl: float = 0.15       # raised from 0.05 — 0.05 was hitting early-stop on
+                                  # step 0 (first mini-batch) after BC init, effectively
+                                  # doing only 1 gradient step per 32k-sample rollout
     n_steps: int = 4096           # raised from 2048 — 8 envs × 4096 = 32k samples/update,
                                   # more reliably captures complete episodes (MAX_STEPS=8000)
     batch_size: int = 256
@@ -88,44 +107,162 @@ class PacmanRLPPOHparams:
 
 class PacManCNNExtractor(BaseFeaturesExtractor):
     """
-    Splits the flat state vector into:
-      - non_spatial (72 floats): ghost positions, timers, scalars
-      - maze (868 floats → 1×31×28): full live maze layout
+    Three-stream encoder:
 
-    A small CNN processes the maze spatially; its output is concatenated
-    with the non-spatial features and fed through a linear layer.
+    Stream A — Multi-channel spatial CNN (9 channels × 31×28):
+      ch0: walls (binary)
+      ch1: regular pellets (binary, updates as eaten)
+      ch2: power pellets (binary, updates as eaten)
+      ch3: ghost house / door tiles (binary) — lets CNN distinguish house from corridors
+      ch4: Pac-Man position (1 at Pac-Man cell)
+      ch5-ch8: each ghost position, encoded with mode:
+               +1.0 if chasing/scatter, -1.0 if frightened, 0 if in-house or eaten
+
+    Stream B — Ghost-specific MLP:
+      Processes the 4 ghosts independently through a shared encoder
+      (pos_delta × 2 + dir_vec × 2 = 4 features per ghost),
+      then concatenates all ghost embeddings.
+
+    Stream C — Scalar context (remaining scalars from non-spatial prefix):
+      local 7×7 window + pellet fraction + combo + mode flags/timers + novelty
+
+    All three streams are concatenated and projected to features_dim.
     """
 
     def __init__(self, observation_space: gym.spaces.Box, features_dim: int = 256):
         super().__init__(observation_space, features_dim)
 
-        # CNN: processes maze as (batch, 1, 31, 28)
-        # After MaxPool2d(2): 31→15, 28→14 → 7→7
+        # Stream A: 9-channel CNN over full maze
         self.cnn = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, padding=1),   # → 32×31×28
-            nn.Tanh(),
+            nn.Conv2d(9, 32, kernel_size=3, padding=1),   # → 32×31×28
+            nn.ReLU(),
             nn.MaxPool2d(2),                               # → 32×15×14
             nn.Conv2d(32, 64, kernel_size=3, padding=1),  # → 64×15×14
-            nn.Tanh(),
+            nn.ReLU(),
             nn.MaxPool2d(2),                               # → 64×7×7
             nn.Conv2d(64, 64, kernel_size=3, padding=1),  # → 64×7×7
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Flatten(),                                  # → 3136
         )
-
         cnn_out = 64 * 7 * 7  # 3136
 
+        # Stream B: per-ghost MLP (shared weights across ghosts)
+        # Input per ghost: pos_delta(2) + dir(2) + fright_flag(1) + fright_tmr(1) + in_house(1) = 7
+        GHOST_IN = 7
+        GHOST_EMBED = 32
+        self.ghost_mlp = nn.Sequential(
+            nn.Linear(GHOST_IN, GHOST_EMBED),
+            nn.ReLU(),
+            nn.Linear(GHOST_EMBED, GHOST_EMBED),
+            nn.ReLU(),
+        )
+        ghost_out = N_GHOSTS * GHOST_EMBED  # 128
+
+        # Stream C: scalar context
+        # local 7×7 window (49) + pellet_frac + combo + chase_mode + mode_timer
+        # + power_pellet_dir(2) + visit_novelty  = 49 + 2 + 1 + 1 + 2 + 1 = 56
+        scalar_in = LOCAL_WIN + 2 + 1 + 1 + 2 + 1  # 56
+
         self.linear = nn.Sequential(
-            nn.Linear(cnn_out + NON_SPATIAL, features_dim),
-            nn.Tanh(),
+            nn.Linear(cnn_out + ghost_out + scalar_in, features_dim),
+            nn.ReLU(),
+            nn.Linear(features_dim, features_dim),
+            nn.ReLU(),
+        )
+
+        # Precomputed integer grids used for position channels.
+        # Registered as buffers so they move with the model (device, dtype) and
+        # are included in state_dict.  Shapes: (1, MAZE_ROWS, 1) and (1, 1, MAZE_COLS).
+        # Using broadcast == avoids index_put_ which is not ONNX-exportable.
+        self.register_buffer(
+            'row_grid',
+            torch.arange(MAZE_ROWS, dtype=torch.long).view(1, MAZE_ROWS, 1),
+        )
+        self.register_buffer(
+            'col_grid',
+            torch.arange(MAZE_COLS, dtype=torch.long).view(1, 1, MAZE_COLS),
         )
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        non_spatial = observations[:, :NON_SPATIAL]
-        maze_flat   = observations[:, NON_SPATIAL:]                  # (batch, 868)
-        maze_2d     = maze_flat.view(-1, 1, MAZE_ROWS, MAZE_COLS) / 6.0  # normalise 0→1
-        cnn_out     = self.cnn(maze_2d)
-        return self.linear(torch.cat([non_spatial, cnn_out], dim=1))
+        B = observations.shape[0]
+
+        # ---- unpack non-spatial prefix (86 floats) ----
+        local_win   = observations[:, 0:49]           # 7×7 tiles
+        ghost_pos   = observations[:, 49:57]          # 4 × (row_delta, col_delta)
+        ghost_dir   = observations[:, 57:65]          # 4 × (dx, dy)
+        pellet_frac = observations[:, 65:66]
+        combo       = observations[:, 66:67]
+        fright_flag = observations[:, 67:71]          # 4 flags
+        fright_tmr  = observations[:, 71:75]          # 4 timers
+        chase_mode  = observations[:, 75:76]
+        mode_tmr    = observations[:, 76:77]
+        pp_dir      = observations[:, 77:79]
+        novelty     = observations[:, 79:80]
+        pac_pos     = observations[:, 80:82]          # (row/31, col/28) normalised
+        in_house    = observations[:, 82:86]          # per-ghost in_house flag
+        maze_flat   = observations[:, NON_SPATIAL:]   # 868
+
+        # ---- Stream A: multi-channel maze image ----
+        tiles = maze_flat.view(B, MAZE_ROWS, MAZE_COLS)  # raw int-valued tile map
+
+        # ch0: walls (tile == 0)
+        ch_walls   = (tiles == 0).float().unsqueeze(1)
+        # ch1: regular pellets (tile == 2)
+        ch_pellets = (tiles == 2).float().unsqueeze(1)
+        # ch2: power pellets (tile == 3)
+        ch_power   = (tiles == 3).float().unsqueeze(1)
+        # ch3: ghost house + door tiles (tile == 4 or 5) — distinguishes house from corridors
+        ch_house   = ((tiles == 4) | (tiles == 5)).float().unsqueeze(1)
+
+        # ch4: Pac-Man position — 1.0 at pac-man cell, 0 elsewhere.
+        # Uses broadcast == instead of index_put so the forward pass is ONNX-exportable.
+        pac_row = (pac_pos[:, 0] * MAZE_ROWS).long().clamp(0, MAZE_ROWS - 1)  # (B,)
+        pac_col = (pac_pos[:, 1] * MAZE_COLS).long().clamp(0, MAZE_COLS - 1)  # (B,)
+        pac_ch = (
+            (self.row_grid == pac_row.view(B, 1, 1)) &   # (B, 31,  1)
+            (self.col_grid == pac_col.view(B, 1, 1))      # (B,  1, 28)
+        ).float().unsqueeze(1)                            # → (B, 1, 31, 28)
+
+        # ch5-ch8: one channel per ghost — mode value at ghost cell, 0 elsewhere.
+        # +1.0 = chasing/scatter, -1.0 = frightened, 0 = in-house or eaten.
+        gpos_pairs = ghost_pos.view(B, N_GHOSTS, 2)
+        ghost_ch_list = []
+        for gi in range(N_GHOSTS):
+            g_row = (pac_row.float() + gpos_pairs[:, gi, 0] * 14).long().clamp(0, MAZE_ROWS - 1)
+            g_col = (pac_col.float() + gpos_pairs[:, gi, 1] * 14).long().clamp(0, MAZE_COLS - 1)
+            mode_val = fright_flag[:, gi] * (-2.0) + 1.0   # frightened→-1, else→+1
+            active   = (in_house[:, gi] == 0).float()       # 0 for in-house ghosts
+            val = (mode_val * active).view(B, 1, 1)         # scalar per batch item
+            ghost_ch = (
+                (self.row_grid == g_row.view(B, 1, 1)) &
+                (self.col_grid == g_col.view(B, 1, 1))
+            ).float() * val                                  # (B, 31, 28)
+            ghost_ch_list.append(ghost_ch.unsqueeze(1))     # (B, 1, 31, 28)
+        ghost_chs = torch.cat(ghost_ch_list, dim=1)         # (B, 4, 31, 28)
+
+        maze_img = torch.cat([ch_walls, ch_pellets, ch_power, ch_house, pac_ch, ghost_chs], dim=1)  # (B, 9, 31, 28)
+        cnn_out  = self.cnn(maze_img)
+
+        # ---- Stream B: per-ghost encoder ----
+        # Build (B, 4, 6) tensor: pos_delta(2) + dir(2) + fright_flag(1) + fright_tmr(1)
+        gpos = ghost_pos.view(B, N_GHOSTS, 2)
+        gdir = ghost_dir.view(B, N_GHOSTS, 2)
+        gflg = fright_flag.view(B, N_GHOSTS, 1)
+        gtmr = fright_tmr.view(B, N_GHOSTS, 1)
+        ginh = in_house.view(B, N_GHOSTS, 1)
+        ghost_feats = torch.cat([gpos, gdir, gflg, gtmr, ginh], dim=2)  # (B, 4, 7)
+        ghost_feats_flat = ghost_feats.view(B * N_GHOSTS, 7)
+        ghost_emb = self.ghost_mlp(ghost_feats_flat)               # (B*4, 32)
+        ghost_emb = ghost_emb.view(B, N_GHOSTS * 32)               # (B, 128)
+
+        # ---- Stream C: scalar context ----
+        scalars = torch.cat(
+            [local_win, pellet_frac, combo, chase_mode, mode_tmr, pp_dir, novelty],
+            dim=1,
+        )  # (B, 56)
+
+        combined = torch.cat([cnn_out, ghost_emb, scalars], dim=1)
+        return self.linear(combined)
 
 
 def policy_kwargs_dict() -> dict:
@@ -200,7 +337,7 @@ class PacManEnv(gym.Env):
         super().__init__()
         self.level = level
         self.observation_space = gym.spaces.Box(
-            low=-2.0, high=10.0, shape=(STATE_SIZE,), dtype=np.float32
+            low=-3.0, high=10.0, shape=(STATE_SIZE,), dtype=np.float32
         )
         self.action_space = gym.spaces.Discrete(N_ACTIONS)
         self._proc: subprocess.Popen | None = None
@@ -295,7 +432,8 @@ class PacManEnv(gym.Env):
 
 # (start_level, timesteps_on_this_level)
 CURRICULUM = [
-    (1,  2_000_000),
+    (1,  5_000_000),   # foundation: all core skills learned here (avoidance + pellets)
+                       # BC handles movement; RL must discover ghost avoidance from scratch
     (2,  2_000_000),
     (3,  2_000_000),
     (4,  2_000_000),   # bridging level — avoids hard jump from 3→5
@@ -304,7 +442,7 @@ CURRICULUM = [
     (7,  2_000_000),   # bridging level
     (8,  3_000_000),
     (9,  2_000_000),   # bridging level — avoids hard jump from 8→10
-    (10, 4_000_000),
+    (10, 5_000_000),   # final target — extra time for polishing and consistent clearing
 ]
 
 

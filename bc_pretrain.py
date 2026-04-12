@@ -1,7 +1,7 @@
 """
 Behavioural Cloning pre-training from imitation log files.
 
-Parses logs/imitation_*.jsonl, reconstructs the exact 940-float state vector
+Parses logs/imitation_*.jsonl, reconstructs the exact 948-float state vector
 used during RL training, trains the CNN policy to mimic recorded actions, then
 saves bc_pretrained.zip which train_ppo.py loads as the PPO starting point.
 
@@ -76,10 +76,19 @@ def count_total_pellets(grid: list[list[int]]) -> int:
 
 # ------------------------------------------------------------------ state reconstruction
 
+_DIR_VEC = {
+    'up':    ( 0.0, -1.0),
+    'down':  ( 0.0,  1.0),
+    'left':  (-1.0,  0.0),
+    'right': ( 1.0,  0.0),
+    'none':  ( 0.0,  0.0),
+}
+
+
 def build_state(frame: dict, maze: list[list[int]],
                 visit_count: dict, frightened_timers: list[int],
                 total_pellets: int) -> list[float]:
-    """Reconstruct the 940-float state vector from a single log frame."""
+    """Reconstruct the 948-float state vector from a single log frame."""
     pb      = frame['player_before']
     pr, pc  = pb['grid']['row'], pb['grid']['col']
     ghosts  = frame['ghosts_before']
@@ -105,27 +114,33 @@ def build_state(frame: dict, maze: list[list[int]],
         state.append((g['grid']['row'] - pr) / 14.0)
         state.append((g['grid']['col'] - pc) / 14.0)
 
-    # [57]    remaining pellets ratio
+    # [57-64] per-ghost direction unit vector (dx, dy)
+    for g in ghosts:
+        dx, dy = _DIR_VEC.get(g.get('direction', 'none'), (0.0, 0.0))
+        state.append(dx)
+        state.append(dy)
+
+    # [65]    remaining pellets ratio
     state.append(remaining / max(1.0, total_pellets))
 
-    # [58]    ghost eat combo ÷ 4
+    # [66]    ghost eat combo ÷ 4
     state.append(combo / 4.0)
 
-    # [59-62] per-ghost is_frightened flag
+    # [67-70] per-ghost is_frightened flag
     for g in ghosts:
         state.append(1.0 if g['mode'] == 'frightened' else 0.0)
 
-    # [63-66] per-ghost frightened timer (tracked from ate_power_pellet events)
+    # [71-74] per-ghost frightened timer (tracked from ate_power_pellet events)
     for t in frightened_timers:
         state.append(t / float(FRIGHTENED_DURATION))
 
-    # [67]    global chase/scatter flag
+    # [75]    global chase/scatter flag
     state.append(1.0 if is_chase else 0.0)
 
-    # [68]    mode timer ÷ 1200
+    # [76]    mode timer ÷ 1200
     state.append(mode_timer / 1200.0)
 
-    # [69-70] direction to nearest power pellet (÷14); (0,0) if none left
+    # [77-78] direction to nearest power pellet (÷14); (0,0) if none left
     if power_pps:
         best_d = float('inf')
         pdx = pdy = 0.0
@@ -143,12 +158,20 @@ def build_state(frame: dict, maze: list[list[int]],
         state.append(0.0)
         state.append(0.0)
 
-    # [71]    visit novelty at current tile
+    # [79]    visit novelty at current tile
     v = visit_count.get((pr, pc), 0)
     state.append(1.0 / (1 + v))
     visit_count[(pr, pc)] = v + 1
 
-    # [72-939] full 31×28 maze (row-major)
+    # [80-81] Pac-Man absolute grid position, normalised (row/31, col/28)
+    state.append(pr / float(MAZE_ROWS))
+    state.append(pc / float(MAZE_COLS))
+
+    # [82-85] per-ghost in_house flag (1 = in ghost house, 0 = on maze)
+    for g in ghosts:
+        state.append(1.0 if g.get('in_house', False) else 0.0)
+
+    # [86-953] full 31×28 maze (row-major)
     for row in maze:
         for t in row:
             state.append(float(t))

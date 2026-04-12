@@ -26,7 +26,11 @@ __pycache__/
 
 ### Weights & Biases
 wandb/
+wandb_models/
 *.wandb
+
+### Large / local model bundles (not tracked)
+model.zip
 
 ### Editor / OS noise (optional but useful)
 *.swp
