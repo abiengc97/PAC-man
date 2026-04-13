@@ -7,6 +7,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <climits>
 #include <cstdlib>
 #include <cmath>
 #include <ctime>
@@ -126,9 +127,14 @@ std::string timestampForFilename() {
 
 constexpr int Game::MODE_SCHEDULE[][2];
 
-Game::Game()
+Game::Game(bool headless, bool rlMode, int startLevel, bool rlRender)
     : m_ghosts{Ghost(GhostID::BLINKY), Ghost(GhostID::PINKY),
                Ghost(GhostID::INKY), Ghost(GhostID::CLYDE)}
+    , m_headless(headless)
+    , m_rlMode(rlMode)
+    , m_rlRender(rlRender)
+    , m_startLevel(startLevel)
+    , m_level(startLevel)
 {
     std::srand(static_cast<unsigned>(std::time(nullptr)));
 }
@@ -138,8 +144,10 @@ Game::~Game() {
 }
 
 bool Game::init() {
-    if (!m_renderer.init("Pac-Man", SCREEN_W, SCREEN_H)) {
-        return false;
+    if (!m_headless) {
+        if (!m_renderer.init("Pac-Man", SCREEN_W, SCREEN_H)) {
+            return false;
+        }
     }
 
     startLevel();
@@ -149,7 +157,9 @@ bool Game::init() {
         return false;
     }
 
-    initLogging();
+    if (!m_rlMode) {
+        initLogging();
+    }
     return true;
 }
 
@@ -173,6 +183,11 @@ void Game::startLevel() {
 }
 
 void Game::run() {
+    if (m_rlMode) {
+        runRL();
+        return;
+    }
+
     Uint32 frameStart;
     int frameTime;
 
@@ -193,6 +208,13 @@ void Game::run() {
 
 void Game::processInput() {
     resetFrameEvents();
+
+    if (m_rlMode) {
+        if (m_rlAction != Direction::NONE) {
+            m_player.handleInput(m_rlAction);
+        }
+        return;
+    }
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -246,13 +268,14 @@ void Game::update() {
 
     if (m_state != GameState::PLAYING) return;
 
-    // Ready countdown at level start
+    // Ready countdown at level start — skip entirely in RL mode for training speed
     if (m_readyTimer > 0) {
-        m_readyTimer--;
-        if (shouldLogFrame) {
-            logFrame(observation, m_frameEvents);
+        if (m_rlMode) {
+            m_readyTimer = 0;
+        } else {
+            m_readyTimer--;
+            return;
         }
-        return;
     }
 
     // Update ghost chase/scatter schedule
@@ -280,19 +303,36 @@ void Game::update() {
     // Check collisions
     checkCollisions(m_frameEvents);
 
-    // Check level clear
+    // Check level clear — log before nextLevel() resets maze/player/ghosts
     if (m_maze.getRemainingPellets() == 0) {
         m_frameEvents.levelCleared = true;
         m_state = GameState::LEVEL_CLEAR;
+        if (shouldLogFrame) {
+            logFrame(observation, m_frameEvents);
+        }
         nextLevel();
+        return;
     }
 
     if (shouldLogFrame) {
         logFrame(observation, m_frameEvents);
     }
+
+    // Respawn after logging so player_after captures the death position
+    if (m_frameEvents.playerDied && !m_frameEvents.gameOver) {
+        m_player.respawn(m_maze.getPacManSpawn());
+        for (auto& ghost : m_ghosts) {
+            ghost.init(m_maze);
+        }
+        m_readyTimer  = READY_DURATION;
+        m_modeTimer   = 0;
+        m_modePhase   = 0;
+        m_isChaseMode = false;
+    }
 }
 
 void Game::render() {
+    if (m_headless) return;
     m_renderer.clear();
 
     m_renderer.drawMaze(m_maze);
@@ -403,6 +443,7 @@ void Game::eatPellet(TileType pelletType) {
 
 void Game::nextLevel() {
     m_level++;
+    m_rlVisitCount = {};   // new level = fresh exploration slate
     startLevel();
 }
 
@@ -412,17 +453,9 @@ void Game::playerDied() {
     if (m_lives <= 0) {
         m_state = GameState::GAME_OVER;
         m_player.die();
-    } else {
-        // Respawn player and ghosts, keep score and pellets
-        m_player.respawn(m_maze.getPacManSpawn());
-        for (auto& ghost : m_ghosts) {
-            ghost.init(m_maze);
-        }
-        m_readyTimer = READY_DURATION;
-        m_modeTimer  = 0;
-        m_modePhase  = 0;
-        m_isChaseMode = false;
     }
+    // Respawn (when lives remain) is deferred to update() so the death
+    // position is captured in player_after before the player teleports.
 }
 
 bool Game::initLogging() {
@@ -455,7 +488,7 @@ bool Game::initLogging() {
         << ",\"power_pellets_logged_as_big_items\":true"
         << "}\n";
 
-    std::cout << "Gameplay logging enabled: " << m_logPath << std::endl;
+    std::cerr << "Gameplay logging enabled: " << m_logPath << std::endl;
     return true;
 }
 
@@ -663,4 +696,347 @@ void Game::logFrame(const FrameObservation& observation, const FrameEvents& even
     if (m_loggedFrameCount % LOG_FLUSH_INTERVAL == 0) {
         m_logFile.flush();
     }
+}
+
+// ============================================================
+// RL interface
+// ============================================================
+
+void Game::runRL() {
+    // Send initial state so Python can call reset() → first obs
+    writeRLStep(buildStateVector(), 0.0f, false);
+
+    Direction prevMoveDir = Direction::NONE; // tracks last actual movement direction
+    bool prevHitWall     = false;           // was last frame a wall hit?
+    int  wallHitStreak   = 0;              // consecutive wall-hit frames (for escalating stall penalty)
+
+    while (m_running) {
+        std::string line;
+        if (!std::getline(std::cin, line)) break;  // Python process closed
+
+        // {"reset":true} → restart episode
+        if (line.find("\"reset\"") != std::string::npos) {
+            m_score = 0;
+            m_lives = 3;
+            m_level = m_startLevel;
+            m_rlVisitCount = {};   // clear exploration counts each episode
+            prevMoveDir    = Direction::NONE;  // prevent cross-episode reversal penalty
+            prevHitWall    = false;            // prevent cross-episode wall-escape reward
+            wallHitStreak  = 0;               // prevent cross-episode stall penalty
+            startLevel();
+            writeRLStep(buildStateVector(), 0.0f, false);
+            continue;
+        }
+
+        // {"action":N}  N = 0:UP  1:DOWN  2:LEFT  3:RIGHT
+        int action = 0;
+        const auto pos = line.find("\"action\"");
+        if (pos != std::string::npos) {
+            const auto colon = line.find(':', pos);
+            if (colon != std::string::npos) {
+                action = std::stoi(line.substr(colon + 1));
+            }
+        }
+        m_rlAction = static_cast<Direction>(action);
+
+        const int scoreBefore = m_score;
+        const Uint32 frameStart = m_rlRender ? SDL_GetTicks() : 0;
+
+        // --- Snapshot pixel state before update for reward shaping ---
+        const int pxBefore = m_player.getPixelX();
+        const int pyBefore = m_player.getPixelY();
+
+        // Nearest dangerous ghost pixel distance (ignore frightened / eaten / in-house)
+        auto dangerPixDist = [&](int px, int py) {
+            int d = 9999;
+            for (const auto& g : m_ghosts) {
+                if (g.isInHouse()) continue;
+                if (g.getMode() == GhostMode::FRIGHTENED) continue;
+                if (g.getMode() == GhostMode::EATEN)      continue;
+                int md = std::abs(g.getPixelX() - px) + std::abs(g.getPixelY() - py);
+                d = std::min(d, md);
+            }
+            return d;
+        };
+
+        // Nearest pellet pixel distance (tile centre = col*TILE_SIZE + TILE_SIZE/2)
+        auto pelletPixDist = [&](int px, int py) {
+            int d = 999999;
+            for (int r = 0; r < MAZE_ROWS; ++r)
+                for (int c = 0; c < MAZE_COLS; ++c) {
+                    TileType t = m_maze.getTile(r, c);
+                    if (t == TileType::PELLET || t == TileType::POWER) {
+                        int tx = c * TILE_SIZE + TILE_SIZE / 2;
+                        int ty = r * TILE_SIZE + TILE_SIZE / 2;
+                        d = std::min(d, std::abs(tx - px) + std::abs(ty - py));
+                    }
+                }
+            return d;
+        };
+
+        const int pelletDistBefore = pelletPixDist(pxBefore, pyBefore);
+
+        processInput();  // applies m_rlAction to player
+        update();
+
+        if (m_rlRender) {
+            render();
+            // Cap to ~60 fps so the human can actually watch
+            const int elapsed = static_cast<int>(SDL_GetTicks() - frameStart);
+            if (FRAME_DELAY > elapsed) SDL_Delay(FRAME_DELAY - elapsed);
+        }
+
+        // --- Post-update reward shaping ---
+        const int pxAfter = m_player.getPixelX();
+        const int pyAfter = m_player.getPixelY();
+
+        // Wall hit: pixel position unchanged means player couldn't move
+        const bool hitWall = (pxBefore == pxAfter && pyBefore == pyAfter);
+        wallHitStreak = hitWall ? wallHitStreak + 1 : 0;
+
+        const int pelletDistAfter = pelletPixDist(pxAfter, pyAfter);
+
+        // --- Base rewards (scaled to match Pacman-RL magnitude) ---
+        // Score delta: pellet=10pts→+1.0, ghost eat=200pts→+20.0 (÷10 but ×10 scale = same ÷1)
+        const float scoreDelta = static_cast<float>(m_score - scoreBefore) / 10.0f;
+        float reward = scoreDelta * 1.0f;
+
+        // Death: -20 (was -50; too large → agent too conservative, avoids all risk)
+        if (m_frameEvents.playerDied)    reward -= 20.0f;
+        // Level clear: +50 (was +100)
+        if (m_frameEvents.levelCleared)  reward += 50.0f;
+
+        // All shaping rewards below are computed relative to the pre-action and post-action
+        // pixel positions.  When the player dies, update() respawns Pac-Man at the start
+        // position, so pxAfter/pyAfter reflect the *respawn* location — completely unrelated
+        // to the action taken.  Applying ghost-proximity, pellet-navigation, or wall-hit
+        // rewards on a death frame would corrupt credit assignment.  Skip all shaping on
+        // death; only the flat -20 death penalty above is appropriate.
+        if (!m_frameEvents.playerDied) {
+        constexpr int DANGER_RADIUS_PX = 6 * TILE_SIZE;
+
+        // Wall hit penalty: fixed -0.5 per hit.
+        if (hitWall) reward -= 0.5f;
+
+        // Escalating stall penalty: after 8 consecutive wall-hit frames, add growing pressure
+        // so the policy is forced to try a different direction rather than spinning in place.
+        // Capped at -2.0 to avoid extreme credit corruption during long stalls.
+        if (wallHitStreak > 8) {
+            reward -= std::min(0.2f * static_cast<float>(wallHitStreak - 8), 2.0f);
+        }
+
+        // Wall escape reward (unchanged)
+        if (prevHitWall && !hitWall) reward += 0.3f;
+        prevHitWall = hitWall;
+
+        // Explicit ghost evasion delta (reduced: 0.15→0.08 to balance vs pellet rewards)
+        for (const auto& g : m_ghosts) {
+            if (g.isInHouse()) continue;
+            if (g.getMode() == GhostMode::FRIGHTENED) continue;
+            if (g.getMode() == GhostMode::EATEN)      continue;
+            const int gdBefore = std::abs(g.getPixelX() - pxBefore) + std::abs(g.getPixelY() - pyBefore);
+            const int gdAfter  = std::abs(g.getPixelX() - pxAfter)  + std::abs(g.getPixelY() - pyAfter);
+            if (gdBefore < DANGER_RADIUS_PX || gdAfter < DANGER_RADIUS_PX) {
+                reward += static_cast<float>(gdAfter - gdBefore) * (0.08f / TILE_SIZE);
+            }
+        }
+
+        // Direction reversal penalty: suppressed when danger is close OR when the
+        // previous frame was already a wall hit.  Reversing is the CORRECT action
+        // when Pac-Man has just hit a dead end — penalising it there caused the
+        // policy to stay stuck rather than backtrack out.
+        const bool isDangerClose = (dangerPixDist(pxAfter, pyAfter) < 3 * TILE_SIZE);
+        if (!isDangerClose && !prevHitWall && prevMoveDir != Direction::NONE) {
+            const bool reversed =
+                (prevMoveDir == Direction::UP    && m_rlAction == Direction::DOWN)  ||
+                (prevMoveDir == Direction::DOWN   && m_rlAction == Direction::UP)   ||
+                (prevMoveDir == Direction::LEFT   && m_rlAction == Direction::RIGHT) ||
+                (prevMoveDir == Direction::RIGHT  && m_rlAction == Direction::LEFT);
+            if (reversed) reward -= 0.2f;  // reduced 0.4→0.2
+        }
+        if (m_player.getDirection() != Direction::NONE)
+            prevMoveDir = m_player.getDirection();
+
+        // Per-ghost shaped rewards (reduced magnitude to balance vs pellet eating)
+        constexpr int CHASE_RADIUS_PX = 5 * TILE_SIZE;
+        for (const auto& g : m_ghosts) {
+            if (g.isInHouse()) continue;
+            const int gd = std::abs(g.getPixelX() - pxAfter) + std::abs(g.getPixelY() - pyAfter);
+            if (g.getMode() == GhostMode::FRIGHTENED) {
+                // Chase frightened ghost: max +1.0 (was +1.5)
+                if (gd < CHASE_RADIUS_PX) {
+                    float ratio = 1.0f - static_cast<float>(gd) / CHASE_RADIUS_PX;
+                    reward += ratio * 1.0f;
+                }
+            } else if (g.getMode() != GhostMode::EATEN) {
+                // Quadratic danger penalty: max -1.0 (was -2.0; too dominant)
+                if (gd < DANGER_RADIUS_PX) {
+                    float ratio = 1.0f - static_cast<float>(gd) / static_cast<float>(DANGER_RADIUS_PX);
+                    reward -= ratio * ratio * 1.0f;
+                }
+            }
+        }
+
+        // Power pellet bonus (reduced: 2.0+2n → 1.0+1n; still incentivises eating near ghosts)
+        if (m_frameEvents.atePowerPellet) {
+            int nearCount = 0;
+            for (const auto& g : m_ghosts) {
+                if (g.isInHouse()) continue;
+                int d = std::abs(g.getPixelX() - pxAfter) + std::abs(g.getPixelY() - pyAfter);
+                if (d < 4 * TILE_SIZE) nearCount++;
+            }
+            reward += 1.0f + nearCount * 1.0f;
+        }
+
+        // Pellet navigation: coeff raised 0.05→0.15 to compete with ghost danger penalty
+        if (m_maze.getRemainingPellets() > 0 && pelletDistBefore < 999999) {
+            reward += static_cast<float>(pelletDistBefore - pelletDistAfter)
+                      * (0.15f / TILE_SIZE);
+        }
+
+        // Exploration novelty: 1/sqrt(1+v) decays much slower than 1/(1+v),
+        // keeping a meaningful pull toward unvisited tiles for ~100+ visits
+        // instead of fading to near-zero after ~10.  This prevents the agent
+        // from settling into a local pellet loop after eating the nearby pellets.
+        {
+            const GridPos pGrid = m_player.getPos();
+            const int visits = m_rlVisitCount[pGrid.row][pGrid.col];
+            reward += 0.08f / std::sqrt(static_cast<float>(1 + visits));
+            m_rlVisitCount[pGrid.row][pGrid.col]++;
+        }
+
+        } // end if (!m_frameEvents.playerDied)
+
+        // End the RL episode on life loss as well as true game termination.
+        // PPO learns much more reliably when "death" is a terminal signal;
+        // otherwise the negative death reward is followed by a respawn with
+        // unrelated dynamics, which smears credit assignment across lives.
+        const bool done = m_frameEvents.playerDied || m_frameEvents.gameOver || m_frameEvents.levelCleared;
+        writeRLStep(buildStateVector(), reward, done);
+    }
+}
+
+std::array<float, Game::RL_STATE_SIZE> Game::buildStateVector() const {
+    std::array<float, RL_STATE_SIZE> state{};
+    const GridPos pPos = m_player.getPos();
+    int idx = 0;
+
+    // [0-1]  player absolute position (normalised)
+    state[idx++] = static_cast<float>(pPos.row) / 30.0f;
+    state[idx++] = static_cast<float>(pPos.col) / 27.0f;
+
+    // [2-9]  ghost absolute positions (row/30, col/27 each)
+    for (const auto& ghost : m_ghosts) {
+        const GridPos gPos = ghost.getPos();
+        state[idx++] = static_cast<float>(gPos.row) / 30.0f;
+        state[idx++] = static_cast<float>(gPos.col) / 27.0f;
+    }
+
+    // [10-13] per-ghost is_frightened
+    for (const auto& ghost : m_ghosts) {
+        state[idx++] = (ghost.getMode() == GhostMode::FRIGHTENED) ? 1.0f : 0.0f;
+    }
+
+    // [14-17] per-ghost frightened timer (classic max ≈ 360 ticks @ 60fps)
+    constexpr float FRIGHTENED_TICKS = 360.0f;
+    for (const auto& ghost : m_ghosts) {
+        state[idx++] = static_cast<float>(ghost.getFrightenedTimer()) / FRIGHTENED_TICKS;
+    }
+
+    // [18-21] per-ghost is_in_house flag
+    for (const auto& ghost : m_ghosts) {
+        state[idx++] = ghost.isInHouse() ? 1.0f : 0.0f;
+    }
+
+    // [22] chase/scatter mode  [23] mode timer
+    state[idx++] = m_isChaseMode ? 1.0f : 0.0f;
+    state[idx++] = static_cast<float>(m_modeTimer) / 1200.0f;
+
+    // [24] remaining pellets ratio  [25] ghost eat combo
+    state[idx++] = static_cast<float>(m_maze.getRemainingPellets()) /
+                   static_cast<float>(std::max(1, m_maze.getTotalPellets()));
+    state[idx++] = static_cast<float>(m_ghostEatCombo) / 4.0f;
+
+    // [26-27] nearest pellet absolute position (row/30, col/27)
+    {
+        int bestDist = INT_MAX;
+        float npr = 0.0f, npc = 0.0f;
+        for (int r = 0; r < MAZE_ROWS; ++r) {
+            for (int c = 0; c < MAZE_COLS; ++c) {
+                TileType t = m_maze.getTile(r, c);
+                if (t == TileType::PELLET || t == TileType::POWER) {
+                    int d = std::abs(r - pPos.row) + std::abs(c - pPos.col);
+                    if (d < bestDist) { bestDist = d; npr = r / 30.0f; npc = c / 27.0f; }
+                }
+            }
+        }
+        state[idx++] = npr;
+        state[idx++] = npc;
+    }
+
+    // [28-31] nearest pellet in each cardinal direction — scan along the corridor until
+    //         a wall blocks the way.  Returns distance in tiles / 30; 1.0 = none found.
+    {
+        auto scanDir = [&](int dr, int dc) -> float {
+            for (int step = 1; step <= 30; ++step) {
+                const int r = pPos.row + dr * step;
+                const int c = pPos.col + dc * step;
+                if (r < 0 || r >= MAZE_ROWS || c < 0 || c >= MAZE_COLS) break;
+                TileType t = m_maze.getTile(r, c);
+                if (t == TileType::WALL) break;
+                if (t == TileType::PELLET || t == TileType::POWER)
+                    return static_cast<float>(step) / 30.0f;
+            }
+            return 1.0f;
+        };
+        state[idx++] = scanDir(-1,  0);  // North
+        state[idx++] = scanDir( 1,  0);  // South
+        state[idx++] = scanDir( 0, -1);  // West
+        state[idx++] = scanDir( 0,  1);  // East
+    }
+
+    // [32-39] power pellet positions — scan row-major for up to 4; pad with 0.0 if eaten
+    {
+        int ppCount = 0;
+        for (int r = 0; r < MAZE_ROWS && ppCount < 4; ++r) {
+            for (int c = 0; c < MAZE_COLS && ppCount < 4; ++c) {
+                if (m_maze.getTile(r, c) == TileType::POWER) {
+                    state[idx++] = static_cast<float>(r) / 30.0f;
+                    state[idx++] = static_cast<float>(c) / 27.0f;
+                    ++ppCount;
+                }
+            }
+        }
+        while (ppCount < 4) { state[idx++] = 0.0f; state[idx++] = 0.0f; ++ppCount; }
+    }
+
+    // [40-88] 7×7 local tile window centred on Pac-Man (normalised by 7.0)
+    constexpr int RADIUS = 3;
+    for (int dr = -RADIUS; dr <= RADIUS; ++dr) {
+        for (int dc = -RADIUS; dc <= RADIUS; ++dc) {
+            const int r = pPos.row + dr;
+            const int c = pPos.col + dc;
+            state[idx++] = (r >= 0 && r < MAZE_ROWS && c >= 0 && c < MAZE_COLS)
+                           ? static_cast<float>(m_maze.getTile(r, c)) / 7.0f
+                           : 0.0f;
+        }
+    }
+    // idx == 89
+
+    return state;
+}
+
+void Game::writeRLStep(const std::array<float, RL_STATE_SIZE>& state,
+                       float reward, bool done) const {
+    std::cout << "{\"state\":[";
+    for (std::size_t i = 0; i < state.size(); ++i) {
+        if (i > 0) std::cout << ',';
+        std::cout << state[i];
+    }
+    std::cout << "],\"reward\":" << reward
+              << ",\"done\":"    << (done  ? "true" : "false")
+              << ",\"lives\":"   << m_lives
+              << ",\"score\":"   << m_score
+              << "}\n";
+    std::cout.flush();
 }

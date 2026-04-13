@@ -12,7 +12,8 @@
 
 class Game {
 public:
-    Game();
+    explicit Game(bool headless = false, bool rlMode = false,
+                  int startLevel = 1, bool rlRender = false);
     ~Game();
 
     bool init();
@@ -100,6 +101,37 @@ private:
         bool levelCleared = false;
         bool gameOver = false;
     };
+
+    // Headless / RL mode
+    bool      m_headless   = false;
+    bool      m_rlMode     = false;
+    bool      m_rlRender   = false;
+    int       m_startLevel = 1;
+    Direction m_rlAction   = Direction::NONE;
+
+    // State layout (89 floats, all values normalised to [0, 1]):
+    //   [0-1]   player row/30, col/27
+    //   [2-9]   4× ghost row/30, col/27
+    //   [10-13] 4× ghost is_frightened
+    //   [14-17] 4× ghost frightened_timer / 360
+    //   [18-21] 4× ghost is_in_house
+    //   [22]    chase_mode
+    //   [23]    mode_timer / 1200
+    //   [24]    remaining_pellets / total_pellets
+    //   [25]    ghost_eat_combo / 4
+    //   [26-27] nearest pellet row/30, col/27
+    //   [28-31] nearest pellet distance N/S/W/E (steps/30; 1.0 = wall/no pellet)
+    //   [32-39] 4× power pellet row/30, col/27 (0,0 if consumed)
+    //   [40-88] 7×7 local tile window / 7.0
+    static constexpr int RL_STATE_SIZE = 89;
+
+    void  runRL();
+    std::array<float, RL_STATE_SIZE> buildStateVector() const;
+    void  writeRLStep(const std::array<float, RL_STATE_SIZE>& state,
+                      float reward, bool done) const;
+
+    // Per-episode tile visit counts for exploration novelty reward (RL only)
+    std::array<std::array<int, MAZE_COLS>, MAZE_ROWS> m_rlVisitCount{};
 
     bool        m_loggingEnabled = false;
     std::ofstream m_logFile;

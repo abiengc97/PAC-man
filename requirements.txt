@@ -1,0 +1,27 @@
+# PAC-man RL — Python dependencies
+#
+#   conda create -n pacman python=3.10 -y
+#   conda activate pacman
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu118
+#
+# Requires CUDA 11.8 runtime on the host machine.
+
+# --- Deep learning framework (CUDA 11.8 build) ---
+torch==2.7.1+cu118
+torchvision==0.22.1+cu118
+
+# --- Reinforcement learning ---
+stable-baselines3==2.8.0
+gymnasium==1.2.3
+
+# --- Experiment tracking ---
+wandb==0.25.1
+tensorboard==2.15.2
+
+# --- Model export / inference ---
+onnx==1.21.0
+onnxruntime==1.23.2
+
+# --- Data ---
+numpy==2.2.6
+pandas==2.3.3
