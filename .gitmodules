@@ -1,0 +1,3 @@
+[submodule "muzero/muzero-general"]
+	path = muzero/muzero-general
+	url = https://github.com/werner-duvaud/muzero-general.git
