@@ -708,7 +708,15 @@ void Game::runRL() {
 
     Direction prevMoveDir = Direction::NONE; // tracks last actual movement direction
     bool prevHitWall     = false;           // was last frame a wall hit?
-    int  wallHitStreak   = 0;              // consecutive wall-hit frames (for escalating stall penalty)
+    int  wallHitStreak   = 0;               // consecutive wall-hit frames (for escalating stall penalty)
+
+    // Repeat-state detection: circular buffer of last 8 grid positions.
+    // If ≤3 unique tiles in the window the agent is looping — apply penalty.
+    constexpr int REPEAT_WINDOW = 8;
+    int recentRow[REPEAT_WINDOW]{};
+    int recentCol[REPEAT_WINDOW]{};
+    int recentIdx  = 0;
+    int recentFill = 0;
 
     while (m_running) {
         std::string line;
@@ -723,6 +731,8 @@ void Game::runRL() {
             prevMoveDir    = Direction::NONE;  // prevent cross-episode reversal penalty
             prevHitWall    = false;            // prevent cross-episode wall-escape reward
             wallHitStreak  = 0;               // prevent cross-episode stall penalty
+            recentIdx      = 0;
+            recentFill     = 0;
             startLevel();
             writeRLStep(buildStateVector(), 0.0f, false);
             continue;
@@ -796,55 +806,72 @@ void Game::runRL() {
 
         const int pelletDistAfter = pelletPixDist(pxAfter, pyAfter);
 
-        // --- Base rewards (scaled to match Pacman-RL magnitude) ---
-        // Score delta: pellet=10pts→+1.0, ghost eat=200pts→+20.0 (÷10 but ×10 scale = same ÷1)
+        // ================================================================
+        // Reward function — layered + potential-based shaping + mode-aware
+        // ================================================================
+
+        // --- 1. Base: score delta × 2  -----------------------------------
+        // Pellet 10 pts → +2.0;  ghost combo 200/400/800/1600 → +40/+80/+160/+320.
+        // Multiplying by 2 (vs old ×1) so pellet reward matches R_FOOD=+2 from the
+        // design spec, and ghost-combo rewards stay proportionally large.
         const float scoreDelta = static_cast<float>(m_score - scoreBefore) / 10.0f;
-        float reward = scoreDelta * 1.0f;
+        float reward = scoreDelta * 2.0f;
 
-        // Death: -20 (was -50; too large → agent too conservative, avoids all risk)
-        if (m_frameEvents.playerDied)    reward -= 20.0f;
-        // Level clear: +50 (was +100)
-        if (m_frameEvents.levelCleared)  reward += 50.0f;
+        // --- 2. Terminal rewards  ----------------------------------------
+        // R_DIE = -500: death must be very painful so the agent prefers almost any
+        //   non-dying action, including approaching ghosts only when safe.
+        // R_WIN = +500: explicit, large signal to finish all pellets.
+        if (m_frameEvents.playerDied)   reward -= 500.0f;
+        if (m_frameEvents.levelCleared) reward += 500.0f;
 
-        // All shaping rewards below are computed relative to the pre-action and post-action
-        // pixel positions.  When the player dies, update() respawns Pac-Man at the start
-        // position, so pxAfter/pyAfter reflect the *respawn* location — completely unrelated
-        // to the action taken.  Applying ghost-proximity, pellet-navigation, or wall-hit
-        // rewards on a death frame would corrupt credit assignment.  Skip all shaping on
-        // death; only the flat -20 death penalty above is appropriate.
+        // All dense shaping below uses pre-/post-action pixel positions.
+        // On a death frame update() immediately respawns Pac-Man, so pxAfter/pyAfter
+        // reflect the spawn point — unrelated to the action taken.  Skip all shaping
+        // on death to avoid corrupting credit assignment.
         if (!m_frameEvents.playerDied) {
-        constexpr int DANGER_RADIUS_PX = 6 * TILE_SIZE;
 
-        // Wall hit penalty: fixed -0.5 per hit.
-        if (hitWall) reward -= 0.5f;
+        // --- 3. Per-step penalty  ----------------------------------------
+        // -0.1/step: discourages looping and idling; makes earlier pellet/ghost
+        // collection strictly more valuable than later.
+        reward -= 0.1f;
 
-        // Escalating stall penalty: after 8 consecutive wall-hit frames, add growing pressure
-        // so the policy is forced to try a different direction rather than spinning in place.
-        // Capped at -2.0 to avoid extreme credit corruption during long stalls.
-        if (wallHitStreak > 8) {
+        // --- 4. Wall-hit penalties  --------------------------------------
+        // -1.0 per wall hit (direct, much clearer than step penalty alone).
+        if (hitWall) reward -= 1.0f;
+
+        // Escalating stall: after 8 consecutive wall frames add extra pressure
+        // so the policy is forced to try a different direction. Capped at -2.0.
+        if (wallHitStreak > 8)
             reward -= std::min(0.2f * static_cast<float>(wallHitStreak - 8), 2.0f);
-        }
 
-        // Wall escape reward (unchanged)
+        // Small reward for escaping a stall sequence.
         if (prevHitWall && !hitWall) reward += 0.3f;
         prevHitWall = hitWall;
 
-        // Explicit ghost evasion delta (reduced: 0.15→0.08 to balance vs pellet rewards)
-        for (const auto& g : m_ghosts) {
-            if (g.isInHouse()) continue;
-            if (g.getMode() == GhostMode::FRIGHTENED) continue;
-            if (g.getMode() == GhostMode::EATEN)      continue;
-            const int gdBefore = std::abs(g.getPixelX() - pxBefore) + std::abs(g.getPixelY() - pyBefore);
-            const int gdAfter  = std::abs(g.getPixelX() - pxAfter)  + std::abs(g.getPixelY() - pyAfter);
-            if (gdBefore < DANGER_RADIUS_PX || gdAfter < DANGER_RADIUS_PX) {
-                reward += static_cast<float>(gdAfter - gdBefore) * (0.08f / TILE_SIZE);
+        // --- 5. Repeat-state penalty  ------------------------------------
+        // Maintain a rolling window of the last REPEAT_WINDOW grid positions.
+        // If ≤3 unique tiles appear the agent is A-B-A-B cycling or spinning
+        // in a tiny loop — penalise to break the habit.
+        const GridPos pGrid = m_player.getPos();
+        recentRow[recentIdx % REPEAT_WINDOW] = pGrid.row;
+        recentCol[recentIdx % REPEAT_WINDOW] = pGrid.col;
+        ++recentIdx;
+        recentFill = std::min(recentFill + 1, REPEAT_WINDOW);
+        if (recentFill == REPEAT_WINDOW) {
+            int uniqueTiles = 0;
+            for (int i = 0; i < REPEAT_WINDOW; ++i) {
+                bool dup = false;
+                for (int j = 0; j < i && !dup; ++j)
+                    dup = (recentRow[i] == recentRow[j] && recentCol[i] == recentCol[j]);
+                if (!dup) ++uniqueTiles;
             }
+            if (uniqueTiles <= 3) reward -= 0.5f;
         }
 
-        // Direction reversal penalty: suppressed when danger is close OR when the
-        // previous frame was already a wall hit.  Reversing is the CORRECT action
-        // when Pac-Man has just hit a dead end — penalising it there caused the
-        // policy to stay stuck rather than backtrack out.
+        // --- 6. Direction-reversal penalty  ------------------------------
+        // Suppress when danger is close (reversing is correct to escape ghosts)
+        // and when the previous frame was a wall-hit (reversing out of a dead end
+        // is correct).
         const bool isDangerClose = (dangerPixDist(pxAfter, pyAfter) < 3 * TILE_SIZE);
         if (!isDangerClose && !prevHitWall && prevMoveDir != Direction::NONE) {
             const bool reversed =
@@ -852,56 +879,79 @@ void Game::runRL() {
                 (prevMoveDir == Direction::DOWN   && m_rlAction == Direction::UP)   ||
                 (prevMoveDir == Direction::LEFT   && m_rlAction == Direction::RIGHT) ||
                 (prevMoveDir == Direction::RIGHT  && m_rlAction == Direction::LEFT);
-            if (reversed) reward -= 0.2f;  // reduced 0.4→0.2
+            if (reversed) reward -= 0.2f;
         }
         if (m_player.getDirection() != Direction::NONE)
             prevMoveDir = m_player.getDirection();
 
-        // Per-ghost shaped rewards (reduced magnitude to balance vs pellet eating)
-        constexpr int CHASE_RADIUS_PX = 5 * TILE_SIZE;
-        for (const auto& g : m_ghosts) {
-            if (g.isInHouse()) continue;
-            const int gd = std::abs(g.getPixelX() - pxAfter) + std::abs(g.getPixelY() - pyAfter);
-            if (g.getMode() == GhostMode::FRIGHTENED) {
-                // Chase frightened ghost: max +1.0 (was +1.5)
-                if (gd < CHASE_RADIUS_PX) {
-                    float ratio = 1.0f - static_cast<float>(gd) / CHASE_RADIUS_PX;
-                    reward += ratio * 1.0f;
-                }
-            } else if (g.getMode() != GhostMode::EATEN) {
-                // Quadratic danger penalty: max -1.0 (was -2.0; too dominant)
-                if (gd < DANGER_RADIUS_PX) {
-                    float ratio = 1.0f - static_cast<float>(gd) / static_cast<float>(DANGER_RADIUS_PX);
-                    reward -= ratio * ratio * 1.0f;
+        // --- 7. Food-progress shaping  -----------------------------------
+        // alpha * (d_food_prev − d_food_now) / TILE_SIZE
+        // alpha = 0.5: moving one tile toward the nearest pellet → +0.5;
+        // moving away → −0.5.  Continuous signal so the policy learns to
+        // navigate toward targets without requiring the rare "eat" event.
+        if (m_maze.getRemainingPellets() > 0 && pelletDistBefore < 999999) {
+            reward += 0.5f * static_cast<float>(pelletDistBefore - pelletDistAfter)
+                           / static_cast<float>(TILE_SIZE);
+        }
+
+        // --- 8. Mode-aware ghost shaping  --------------------------------
+        // Normal mode   → exponential danger penalty  −β·exp(−d/τ)
+        //   β = 1.5, τ = 2 tiles (48 px).  At ½-tile distance: ≈ −1.1/ghost;
+        //   at 2 tiles: ≈ −0.55/ghost; at 4 tiles: ≈ −0.20/ghost.
+        //   Smooth and extends to infinity — no hard radius needed.
+        //
+        // Frightened mode → pursuit shaping  +γ·(d_prev − d_now) / TILE_SIZE
+        //   γ = 1.0: moving one tile toward a frightened ghost → +1.0.
+        //   Mode SWITCH is critical: without it the agent keeps running away
+        //   even after eating a power pellet.
+        //
+        // Power-pellet bonus: R_POWER = +8, +4 extra per ghost within 4 tiles
+        //   at eat-time to reward strategic power-pellet usage.
+        {
+            constexpr float TAU  = 2.0f * TILE_SIZE;   // exponential decay constant
+            constexpr float BETA = 1.5f;               // danger penalty scale
+            constexpr float GAMMA_HUNT = 1.0f;         // pursuit shaping scale
+
+            for (const auto& g : m_ghosts) {
+                if (g.isInHouse()) continue;
+                if (g.getMode() == GhostMode::EATEN) continue;
+
+                const int gdAfterPx  = std::abs(g.getPixelX() - pxAfter)
+                                     + std::abs(g.getPixelY() - pyAfter);
+
+                if (g.getMode() == GhostMode::FRIGHTENED) {
+                    // Pursuit shaping: reward getting closer to a frightened ghost.
+                    const int gdBeforePx = std::abs(g.getPixelX() - pxBefore)
+                                        + std::abs(g.getPixelY() - pyBefore);
+                    reward += GAMMA_HUNT * static_cast<float>(gdBeforePx - gdAfterPx)
+                                        / static_cast<float>(TILE_SIZE);
+                } else {
+                    // Exponential danger penalty.
+                    reward -= BETA * std::exp(-static_cast<float>(gdAfterPx) / TAU);
                 }
             }
         }
 
-        // Power pellet bonus (reduced: 2.0+2n → 1.0+1n; still incentivises eating near ghosts)
+        // Power-pellet bonus: strategic tool to create a ghost-eating window.
+        // R_POWER = +8 base, +4 per ghost within 4 tiles when pellet is eaten.
+        // Intentionally smaller than ghost-eating rewards so the agent treats
+        // power pellets as means to an end, not the goal itself.
         if (m_frameEvents.atePowerPellet) {
             int nearCount = 0;
             for (const auto& g : m_ghosts) {
                 if (g.isInHouse()) continue;
                 int d = std::abs(g.getPixelX() - pxAfter) + std::abs(g.getPixelY() - pyAfter);
-                if (d < 4 * TILE_SIZE) nearCount++;
+                if (d < 4 * TILE_SIZE) ++nearCount;
             }
-            reward += 1.0f + nearCount * 1.0f;
+            reward += 8.0f + nearCount * 4.0f;
         }
 
-        // Pellet navigation: coeff raised 0.05→0.15 to compete with ghost danger penalty
-        if (m_maze.getRemainingPellets() > 0 && pelletDistBefore < 999999) {
-            reward += static_cast<float>(pelletDistBefore - pelletDistAfter)
-                      * (0.15f / TILE_SIZE);
-        }
-
-        // Exploration novelty: 1/sqrt(1+v) decays much slower than 1/(1+v),
-        // keeping a meaningful pull toward unvisited tiles for ~100+ visits
-        // instead of fading to near-zero after ~10.  This prevents the agent
-        // from settling into a local pellet loop after eating the nearby pellets.
+        // --- 9. Exploration novelty  -------------------------------------
+        // 1/√(1+v) pull toward unvisited tiles; decays slowly so the agent
+        // keeps exploring the full maze rather than farming a safe pellet loop.
         {
-            const GridPos pGrid = m_player.getPos();
             const int visits = m_rlVisitCount[pGrid.row][pGrid.col];
-            reward += 0.08f / std::sqrt(static_cast<float>(1 + visits));
+            reward += 0.05f / std::sqrt(static_cast<float>(1 + visits));
             m_rlVisitCount[pGrid.row][pGrid.col]++;
         }
 
