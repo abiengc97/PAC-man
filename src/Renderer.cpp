@@ -229,7 +229,7 @@ void Renderer::drawGhost(const Ghost& ghost) {
     }
 
     // Ghost body: circle top + rectangle bottom
-    drawCircle(cx, cy - 2, radius, color);
+    drawCircle(cx, cy - 2, radius, color, M_PI / 2, M_PI / 2);
     drawRect(cx - radius, cy - 2, radius * 2 + 1, radius, color);
 
     // Wavy bottom edge
