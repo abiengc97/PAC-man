@@ -15,6 +15,13 @@
 namespace {
 
 constexpr int LOG_FLUSH_INTERVAL = FPS;
+constexpr int BONUS_FRUIT_VISIBLE_TICKS = 9 * FPS;
+constexpr int BONUS_FRUIT_SPAWN_THRESHOLDS[] = {70, 170};
+
+struct FruitInfo {
+    FruitType type;
+    int points;
+};
 
 const char* directionToString(Direction direction) {
     switch (direction) {
@@ -72,6 +79,31 @@ const char* gameStateToString(GameState state) {
     return "menu";
 }
 
+const char* fruitTypeToString(FruitType type) {
+    switch (type) {
+        case FruitType::CHERRY: return "cherry";
+        case FruitType::STRAWBERRY: return "strawberry";
+        case FruitType::ORANGE: return "orange";
+        case FruitType::APPLE: return "apple";
+        case FruitType::MELON: return "melon";
+        case FruitType::GALAXIAN: return "galaxian_flagship";
+        case FruitType::BELL: return "bell";
+        case FruitType::KEY: return "key";
+    }
+    return "cherry";
+}
+
+FruitInfo fruitInfoForLevel(int level) {
+    if (level <= 1)  return {FruitType::CHERRY, 100};
+    if (level == 2)  return {FruitType::STRAWBERRY, 300};
+    if (level <= 4)  return {FruitType::ORANGE, 500};
+    if (level <= 6)  return {FruitType::APPLE, 700};
+    if (level <= 8)  return {FruitType::MELON, 1000};
+    if (level <= 10) return {FruitType::GALAXIAN, 2000};
+    if (level <= 12) return {FruitType::BELL, 3000};
+    return {FruitType::KEY, 5000};
+}
+
 std::string escapeJson(const std::string& value) {
     std::string escaped;
     escaped.reserve(value.size());
@@ -101,6 +133,19 @@ void writeGridPosListJson(std::ostream& out, const std::vector<GridPos>& positio
         writeGridPosJson(out, positions[i]);
     }
     out << "]";
+}
+
+void writeBonusFruitJson(std::ostream& out, bool active, GridPos pos, FruitType type, int points) {
+    if (!active) {
+        out << "null";
+        return;
+    }
+
+    out << "{\"type\":\"" << fruitTypeToString(type) << "\""
+        << ",\"points\":" << points
+        << ",\"grid\":";
+    writeGridPosJson(out, pos);
+    out << "}";
 }
 
 int manhattanDistance(GridPos a, GridPos b) {
@@ -178,6 +223,7 @@ void Game::startLevel() {
     m_modePhase   = 0;
     m_isChaseMode = false;
     m_ghostEatCombo = 0;
+    resetBonusFruit();
     m_readyTimer  = READY_DURATION;
     m_state       = GameState::PLAYING;
 }
@@ -293,6 +339,8 @@ void Game::update() {
         eatPellet(tile);
     }
 
+    updateBonusFruit(m_frameEvents);
+
     // Update ghosts
     for (auto& ghost : m_ghosts) {
         // Pass blinky reference to inky for targeting
@@ -336,13 +384,16 @@ void Game::render() {
     m_renderer.clear();
 
     m_renderer.drawMaze(m_maze);
+    if (m_bonusFruit.active) {
+        m_renderer.drawBonusFruit(m_bonusFruit.pos, m_bonusFruit.type);
+    }
     m_renderer.drawPlayer(m_player);
 
     for (const auto& ghost : m_ghosts) {
         m_renderer.drawGhost(ghost);
     }
 
-    m_renderer.drawHUD(m_score, m_lives, m_level);
+    m_renderer.drawHUD(m_score, m_lives, m_level, m_bonusFruit.type, m_bonusFruit.active);
 
     if (m_readyTimer > 0) {
         m_renderer.drawReady();
@@ -458,6 +509,96 @@ void Game::playerDied() {
     // position is captured in player_after before the player teleports.
 }
 
+void Game::resetBonusFruit() {
+    const FruitInfo info = fruitInfoForLevel(m_level);
+    m_bonusFruit = BonusFruitState{};
+    m_bonusFruit.type = info.type;
+    m_bonusFruit.points = info.points;
+    m_bonusFruit.pos = findBonusFruitSpawn();
+}
+
+void Game::updateBonusFruit(FrameEvents& events) {
+    bool fruitCollectedThisFrame = false;
+    auto collectFruit = [&]() {
+        m_score += m_bonusFruit.points;
+        events.ateBonusFruit = true;
+        events.bonusFruitScore = m_bonusFruit.points;
+        m_bonusFruit.active = false;
+        m_bonusFruit.timer = 0;
+        fruitCollectedThisFrame = true;
+    };
+
+    if (m_bonusFruit.active && m_player.getPos() == m_bonusFruit.pos) {
+        collectFruit();
+    }
+
+    if (!fruitCollectedThisFrame && m_bonusFruit.active) {
+        if (m_bonusFruit.timer > 0) {
+            --m_bonusFruit.timer;
+        }
+        if (m_bonusFruit.timer <= 0) {
+            m_bonusFruit.active = false;
+        }
+    }
+
+    const int eatenPellets = m_maze.getTotalPellets() - m_maze.getRemainingPellets();
+    if (!fruitCollectedThisFrame &&
+        !m_bonusFruit.active &&
+        m_bonusFruit.spawnCount < 2 &&
+        eatenPellets >= BONUS_FRUIT_SPAWN_THRESHOLDS[m_bonusFruit.spawnCount]) {
+        m_bonusFruit.active = true;
+        m_bonusFruit.timer = BONUS_FRUIT_VISIBLE_TICKS;
+        ++m_bonusFruit.spawnCount;
+    }
+
+    if (!fruitCollectedThisFrame &&
+        m_bonusFruit.active &&
+        m_player.getPos() == m_bonusFruit.pos) {
+        collectFruit();
+    }
+}
+
+GridPos Game::findBonusFruitSpawn() const {
+    const GridPos entry = m_maze.getGhostHouseEntry();
+    const int targetRow = (entry.row > 0) ? entry.row + 5 : MAZE_ROWS / 2;
+    const int targetCol = (entry.col > 0) ? entry.col : MAZE_COLS / 2;
+
+    const std::array<GridPos, 9> preferredSpots{{
+        {targetRow, targetCol},
+        {targetRow, targetCol + 1},
+        {targetRow, targetCol - 1},
+        {targetRow - 1, targetCol},
+        {targetRow + 1, targetCol},
+        {targetRow - 1, targetCol + 1},
+        {targetRow - 1, targetCol - 1},
+        {targetRow + 1, targetCol + 1},
+        {targetRow + 1, targetCol - 1},
+    }};
+
+    for (GridPos candidate : preferredSpots) {
+        if (m_maze.isInBounds(candidate.row, candidate.col) &&
+            m_maze.isWalkable(candidate.row, candidate.col)) {
+            return candidate;
+        }
+    }
+
+    GridPos bestPos = m_maze.getPacManSpawn();
+    int bestDistance = INT_MAX;
+    for (int row = 0; row < m_maze.getRows(); ++row) {
+        for (int col = 0; col < m_maze.getCols(); ++col) {
+            if (!m_maze.isWalkable(row, col)) continue;
+
+            const int distance = std::abs(row - targetRow) + std::abs(col - targetCol);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestPos = {row, col};
+            }
+        }
+    }
+
+    return bestPos;
+}
+
 bool Game::initLogging() {
     try {
         std::filesystem::create_directories("../logs");
@@ -480,11 +621,11 @@ bool Game::initLogging() {
 
     m_logFile
         << "{\"record_type\":\"session_start\""
-        << ",\"log_version\":1"
+        << ",\"log_version\":2"
         << ",\"fps\":" << FPS
         << ",\"maze_rows\":" << m_maze.getRows()
         << ",\"maze_cols\":" << m_maze.getCols()
-        << ",\"bonus_fruit_supported\":false"
+        << ",\"bonus_fruit_supported\":true"
         << ",\"power_pellets_logged_as_big_items\":true"
         << "}\n";
 
@@ -531,6 +672,10 @@ Game::FrameObservation Game::captureObservation() const {
     observation.playerAlive = m_player.isAlive();
     observation.playerAlignedToGrid = m_player.isGridAligned();
     observation.powerPelletPositions = collectTilePositions(TileType::POWER);
+    observation.bonusFruitActive = m_bonusFruit.active;
+    observation.bonusFruitPos = m_bonusFruit.pos;
+    observation.bonusFruitType = m_bonusFruit.type;
+    observation.bonusFruitPoints = m_bonusFruit.points;
 
     for (std::size_t i = 0; i < m_ghosts.size(); ++i) {
         const auto& ghost = m_ghosts[i];
@@ -641,7 +786,31 @@ void Game::logFrame(const FrameObservation& observation, const FrameEvents& even
         << ",\"power_pellet_positions_after\":";
     writeGridPosListJson(m_logFile, collectTilePositions(TileType::POWER));
     m_logFile
-        << ",\"bonus_fruit_position\":null"
+        << ",\"bonus_fruit_before\":";
+    writeBonusFruitJson(
+        m_logFile,
+        observation.bonusFruitActive,
+        observation.bonusFruitPos,
+        observation.bonusFruitType,
+        observation.bonusFruitPoints
+    );
+    m_logFile
+        << ",\"bonus_fruit_after\":";
+    writeBonusFruitJson(
+        m_logFile,
+        m_bonusFruit.active,
+        m_bonusFruit.pos,
+        m_bonusFruit.type,
+        m_bonusFruit.points
+    );
+    m_logFile
+        << ",\"bonus_fruit_position\":";
+    if (m_bonusFruit.active) {
+        writeGridPosJson(m_logFile, m_bonusFruit.pos);
+    } else {
+        m_logFile << "null";
+    }
+    m_logFile
         << ",\"ghosts_before\":[";
 
     for (std::size_t i = 0; i < observation.ghosts.size(); ++i) {
@@ -680,6 +849,8 @@ void Game::logFrame(const FrameObservation& observation, const FrameEvents& even
     m_logFile
         << "],\"events\":{\"ate_pellet\":" << (events.atePellet ? "true" : "false")
         << ",\"ate_power_pellet\":" << (events.atePowerPellet ? "true" : "false")
+        << ",\"ate_bonus_fruit\":" << (events.ateBonusFruit ? "true" : "false")
+        << ",\"bonus_fruit_score\":" << events.bonusFruitScore
         << ",\"player_died\":" << (events.playerDied ? "true" : "false")
         << ",\"level_cleared\":" << (events.levelCleared ? "true" : "false")
         << ",\"game_over\":" << (events.gameOver ? "true" : "false")

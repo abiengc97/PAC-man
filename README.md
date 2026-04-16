@@ -77,11 +77,11 @@ Each line is a JSON object. The log includes:
 - All ghost positions, directions, modes, and distance-to-player
 - Power-pellet positions before/after the frame
 - Score, lives, level, ghost mode schedule state, and pellet counts
-- Outcome flags such as pellet eaten, power pellet eaten, ghost eaten, player death, and level clear
+- Outcome flags such as pellet eaten, power pellet eaten, bonus fruit eaten, ghost eaten, player death, and level clear
 
-There is no bonus fruit entity in the current game logic yet, so
-`bonus_fruit_position` is logged as `null`. Power pellets are included as the
-"big item" signal instead.
+Bonus fruit now appears twice per level using the classic Pac-Man dot-count
+thresholds and the original arcade fruit progression. `bonus_fruit_position`
+is `null` when no fruit is active.
 
 Ready-countdown frames are skipped. `ghost_mode_phase` advances only after a
 full scatter/chase pair; `ghost_mode_step` advances on each scatter/chase

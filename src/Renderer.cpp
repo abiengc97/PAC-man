@@ -260,6 +260,112 @@ void Renderer::drawGhost(const Ghost& ghost) {
     drawCircle(cx + 4 + pdx, cy - 3 + pdy, 1, eyeBlue);
 }
 
+void Renderer::drawBonusFruit(GridPos pos, FruitType type) {
+    const int x = pos.col * TILE_SIZE;
+    const int y = pos.row * TILE_SIZE;
+    const int cx = x + TILE_SIZE / 2;
+    const int cy = y + TILE_SIZE / 2 + 1;
+
+    const SDL_Color cherryRed   = {222, 30, 68, 255};
+    const SDL_Color berryRed    = {240, 55, 85, 255};
+    const SDL_Color appleRed    = {210, 40, 40, 255};
+    const SDL_Color orange      = {255, 153, 0, 255};
+    const SDL_Color melonGreen  = {90, 200, 110, 255};
+    const SDL_Color darkGreen   = {40, 150, 70, 255};
+    const SDL_Color leafGreen   = {60, 190, 90, 255};
+    const SDL_Color yellow      = {255, 220, 40, 255};
+    const SDL_Color gold        = {255, 200, 40, 255};
+    const SDL_Color blue        = {70, 180, 255, 255};
+    const SDL_Color white       = {255, 255, 255, 255};
+    const SDL_Color black       = {0, 0, 0, 255};
+
+    auto stripe = [&](int dy, int width, SDL_Color color) {
+        drawRect(cx - width / 2, cy + dy, width, 2, color);
+    };
+
+    switch (type) {
+        case FruitType::CHERRY:
+            drawCircle(cx - 4, cy + 2, 5, cherryRed);
+            drawCircle(cx + 4, cy + 2, 5, cherryRed);
+            drawRect(cx - 2, cy - 8, 2, 7, leafGreen);
+            drawRect(cx + 2, cy - 8, 2, 7, leafGreen);
+            drawRect(cx - 2, cy - 8, 6, 2, leafGreen);
+            drawCircle(cx - 6, cy, 1, white);
+            drawCircle(cx + 2, cy, 1, white);
+            break;
+
+        case FruitType::STRAWBERRY:
+            drawRect(cx - 3, cy - 7, 6, 3, leafGreen);
+            drawRect(cx - 5, cy - 4, 10, 3, leafGreen);
+            stripe(-3, 8, berryRed);
+            stripe(-1, 10, berryRed);
+            stripe(1, 12, berryRed);
+            stripe(3, 10, berryRed);
+            stripe(5, 8, berryRed);
+            drawRect(cx - 3, cy + 7, 6, 2, berryRed);
+            drawCircle(cx - 3, cy - 1, 1, yellow);
+            drawCircle(cx + 1, cy - 2, 1, yellow);
+            drawCircle(cx - 1, cy + 2, 1, yellow);
+            drawCircle(cx + 3, cy + 1, 1, yellow);
+            drawCircle(cx - 4, cy + 4, 1, yellow);
+            break;
+
+        case FruitType::ORANGE:
+            drawCircle(cx, cy + 1, 7, orange);
+            drawRect(cx - 1, cy - 9, 2, 4, darkGreen);
+            drawRect(cx + 1, cy - 8, 4, 2, leafGreen);
+            drawCircle(cx - 3, cy - 1, 1, white);
+            break;
+
+        case FruitType::APPLE:
+            drawCircle(cx - 3, cy + 1, 6, appleRed);
+            drawCircle(cx + 3, cy + 1, 6, appleRed);
+            drawRect(cx - 5, cy + 4, 10, 4, appleRed);
+            drawRect(cx - 1, cy - 9, 2, 5, darkGreen);
+            drawRect(cx + 1, cy - 8, 4, 2, leafGreen);
+            drawCircle(cx - 4, cy - 1, 1, white);
+            break;
+
+        case FruitType::MELON:
+            drawRect(cx - 1, cy - 8, 2, 4, darkGreen);
+            drawCircle(cx, cy + 1, 8, melonGreen);
+            stripe(-4, 10, darkGreen);
+            stripe(0, 12, darkGreen);
+            stripe(4, 10, darkGreen);
+            drawCircle(cx - 3, cy - 1, 1, white);
+            break;
+
+        case FruitType::GALAXIAN:
+            drawRect(cx - 7, cy + 3, 14, 3, blue);
+            drawRect(cx - 5, cy, 10, 3, yellow);
+            drawRect(cx - 3, cy - 3, 6, 3, white);
+            drawRect(cx - 1, cy - 6, 2, 3, cherryRed);
+            drawRect(cx - 9, cy + 1, 2, 2, cherryRed);
+            drawRect(cx + 7, cy + 1, 2, 2, cherryRed);
+            break;
+
+        case FruitType::BELL:
+            drawRect(cx - 1, cy - 9, 2, 4, white);
+            stripe(-4, 8, yellow);
+            stripe(-2, 10, yellow);
+            stripe(0, 12, yellow);
+            stripe(2, 12, yellow);
+            drawRect(cx - 5, cy + 4, 10, 3, yellow);
+            drawCircle(cx, cy + 6, 2, blue);
+            drawRect(cx - 6, cy + 4, 2, 2, gold);
+            drawRect(cx + 4, cy + 4, 2, 2, gold);
+            break;
+
+        case FruitType::KEY:
+            drawCircle(cx - 4, cy - 1, 4, gold);
+            drawCircle(cx - 4, cy - 1, 2, black);
+            drawRect(cx - 1, cy - 2, 10, 3, gold);
+            drawRect(cx + 5, cy - 2, 2, 7, gold);
+            drawRect(cx + 8, cy - 2, 2, 4, gold);
+            break;
+    }
+}
+
 SDL_Color Renderer::getGhostColor(GhostID id) const {
     switch (id) {
         case GhostID::BLINKY: return {255, 0, 0, 255};       // red
@@ -270,7 +376,7 @@ SDL_Color Renderer::getGhostColor(GhostID id) const {
     return {255, 255, 255, 255};
 }
 
-void Renderer::drawHUD(int score, int lives, int level) {
+void Renderer::drawHUD(int score, int lives, int level, FruitType currentFruit, bool bonusActive) {
     int hudY = MAZE_ROWS * TILE_SIZE + 4;
     SDL_Color white = {255, 255, 255, 255};
     SDL_Color yellow = {255, 255, 0, 255};
@@ -285,6 +391,11 @@ void Renderer::drawHUD(int score, int lives, int level) {
 
     // Level
     drawString(SCREEN_W / 2 - 40, hudY, "LV:" + std::to_string(level), white, 2);
+
+    // Current level fruit preview
+    drawString(SCREEN_W / 2 + 56, hudY, bonusActive ? "BONUS" : "FRUIT",
+               bonusActive ? yellow : white, 2);
+    drawBonusFruit({MAZE_ROWS, 20}, currentFruit);
 }
 
 void Renderer::drawPause(void) {

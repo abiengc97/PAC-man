@@ -24,7 +24,8 @@ public:
     void drawMaze(const Maze& maze);
     void drawPlayer(const Player& player);
     void drawGhost(const Ghost& ghost);
-    void drawHUD(int score, int lives, int level);
+    void drawBonusFruit(GridPos pos, FruitType type);
+    void drawHUD(int score, int lives, int level, FruitType currentFruit, bool bonusActive);
     void drawPause(void);
     void drawGameOver(int finalScore);
     void drawReady();

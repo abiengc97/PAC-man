@@ -51,6 +51,17 @@ private:
     // Ghost eat scoring
     int m_ghostEatCombo = 0; // resets per power pellet
 
+    struct BonusFruitState {
+        bool      active = false;
+        FruitType type = FruitType::CHERRY;
+        GridPos   pos;
+        int       points = 0;
+        int       timer = 0;
+        int       spawnCount = 0;
+    };
+
+    BonusFruitState m_bonusFruit;
+
     // Ready timer (brief pause at level start)
     int m_readyTimer = 0;
     static constexpr int READY_DURATION = 120; // 2 seconds
@@ -89,6 +100,10 @@ private:
         bool      playerAlive = true;
         bool      playerAlignedToGrid = false;
         std::vector<GridPos> powerPelletPositions;
+        bool      bonusFruitActive = false;
+        GridPos   bonusFruitPos;
+        FruitType bonusFruitType = FruitType::CHERRY;
+        int       bonusFruitPoints = 0;
         std::array<LoggedGhostState, 4> ghosts;
     };
 
@@ -96,6 +111,8 @@ private:
         std::vector<std::string> keypresses;
         bool atePellet = false;
         bool atePowerPellet = false;
+        bool ateBonusFruit = false;
+        int  bonusFruitScore = 0;
         std::array<bool, 4> ghostsEaten{};
         bool playerDied = false;
         bool levelCleared = false;
@@ -151,6 +168,9 @@ private:
     void nextLevel();
     void playerDied();
     void eatPellet(TileType pelletType);
+    void resetBonusFruit();
+    void updateBonusFruit(FrameEvents& events);
+    GridPos findBonusFruitSpawn() const;
 
     // Data logging
     bool initLogging();
