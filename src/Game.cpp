@@ -285,18 +285,20 @@ void Game::processInput() {
 
                     case SDLK_RETURN:
                         switch (m_menuSelect) {
-                            case 1:
+                            case 1: // Start
                                 m_rlMode = true;
+                            case 0: // Autopilot
+                                if (!init()) {
+                                    std::cerr << "Failed to initialize game." << std::endl;
+                                    m_running = false;
+                                    return;
+                                }
                                 break;
-                            case 2:
+                            case 2: // Quit
                                 m_running = false;
                                 break;
                         }
-                        if (!init()) {
-                            std::cerr << "Failed to initialize game." << std::endl;
-                            m_running = false;
-                            return;
-                        }
+
                         break;
 
                     case SDLK_UP:    case SDLK_w:
