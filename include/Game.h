@@ -17,6 +17,7 @@ public:
     ~Game();
 
     bool init();
+    bool initScreen();
     void run();
 
 private:
@@ -25,6 +26,9 @@ private:
     Maze     m_maze;
     Player   m_player;
     std::array<Ghost, 4> m_ghosts;
+
+    // Main menu
+    int     m_menuSelect = 0;
 
     // Game state
     GameState m_state    = GameState::MENU;

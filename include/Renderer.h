@@ -25,6 +25,7 @@ public:
     void drawPlayer(const Player& player);
     void drawGhost(const Ghost& ghost);
     void drawBonusFruit(GridPos pos, FruitType type);
+    void drawTitleScreen(int selectedOption);
     void drawHUD(int score, int lives, int level, FruitType currentFruit, bool bonusActive);
     void drawPause(void);
     void drawGameOver(int finalScore);
@@ -45,4 +46,6 @@ private:
     // Helper: simple text rendering using rectangles (no SDL_ttf needed)
     void drawChar(int x, int y, char c, SDL_Color color, int scale = 1);
     void drawString(int x, int y, const std::string& text, SDL_Color color, int scale = 1);
+    // Helper: draw a filled in triangle
+    void drawTriangle(int x1, int y1, int x2, int y2, int x3, int y3, SDL_Color color);
 };

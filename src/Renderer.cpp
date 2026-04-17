@@ -229,7 +229,7 @@ void Renderer::drawGhost(const Ghost& ghost) {
     }
 
     // Ghost body: circle top + rectangle bottom
-    drawCircle(cx, cy - 2, radius, color);
+    drawCircle(cx, cy - 2, radius, color, M_PI / 2, M_PI / 2);
     drawRect(cx - radius, cy - 2, radius * 2 + 1, radius, color);
 
     // Wavy bottom edge
@@ -376,6 +376,101 @@ SDL_Color Renderer::getGhostColor(GhostID id) const {
     return {255, 255, 255, 255};
 }
 
+void Renderer::drawTitleScreen(int selectedOption) {
+    // --- 1. Draw the Logo Plate ---
+    int boxW = 375;
+    int boxH = 93;
+    int boxX = SCREEN_W / 2 - boxW / 2;
+    int boxY = SCREEN_H / 4;
+
+    SDL_Color red = {231, 36, 42, 255};
+    SDL_Color orange = {240, 134, 37, 255};
+    SDL_Color black = {0, 0, 0, 255};
+    SDL_Color yellow = {254, 211, 18, 255};
+    SDL_Color white = {255, 255, 255, 255};
+
+    // Helper lambda to draw a rounded rectangle
+    auto drawRoundedRect = [&](int x, int y, int w, int h, int r, SDL_Color color) {
+        drawRect(x + r, y, w - 2 * r, h, color);
+        drawRect(x, y + r, w, h - 2 * r, color);
+        drawCircle(x + r, y + r, r, color);
+        drawCircle(x + w - r, y + r, r, color);
+        drawCircle(x + r, y + h - r, r, color);
+        drawCircle(x + w - r, y + h - r, r, color);
+    };
+
+    // Draw Background Plate
+    drawRoundedRect(boxX, boxY, boxW, boxH, 17, red);
+    drawRoundedRect(boxX + 8, boxY + 8, boxW - 16, boxH - 16, 9, orange);
+
+    // --- 2. Draw the Logo Text Shapes ---
+    auto drawLogoPass = [&](int offsetX, int offsetY, SDL_Color color) {
+
+        int py = boxY + 16 + offsetY;
+
+        // P
+        int px = boxX + 16 + offsetX;
+        drawRect(px, py, 21, 55, color);
+        drawRect(px + 14, py, 23, 33, color);
+        drawCircle(px + 33, py + 16, 16, color);
+
+        // A
+        int ax = boxX + 60 + offsetX;
+        drawTriangle(ax + 24, py, ax, py + 55, ax + 48, py + 55, color);
+
+        // C
+        int cx = boxX + 129 + offsetX;
+        drawCircle(cx, py + 28, 25, color, 0, M_PI / 3.0f);
+
+        // -
+        int dashX = boxX + 163 + offsetX;
+        drawRect(dashX, py + 23, 28, 11, color);
+
+        // M
+        int mx = boxX + 199 + offsetX;
+        drawTriangle(mx, py, mx, py + 55, mx + 44, py + 55, color);
+        drawTriangle(mx + 44, py, mx + 44, py + 55, mx, py + 55, color);
+
+        // A
+        int ax2 = boxX + 251 + offsetX;
+        drawTriangle(ax2 + 24, py, ax2, py + 55, ax2 + 48, py + 55, color);
+
+        // N
+        int nx = boxX + 305 + offsetX;
+        drawTriangle(nx, py, nx + 44, py + 55, nx, py + 55, color);
+        drawRect(nx + 21, py, 24, 55, color);
+    };
+
+    // Render Shadow Pass first, then the Yellow Pass
+    drawLogoPass(9, 6, black);
+    drawLogoPass(0, 0, yellow);
+
+    // --- 3. Draw Small Black Holes for P and A ---
+    int py = boxY + 16;
+
+    // Hole for P
+    drawCircle(boxX + 49, py + 16, 3, black);
+
+    // Hole for first A
+    drawCircle(boxX + 84, py + 35, 4, black);
+
+    // Hole for second A
+    drawCircle(boxX + 275, py + 35, 4, black);
+
+    // --- 4. Draw Menu Options ---
+    int menuY = SCREEN_H / 2 + 50;
+
+    auto drawOption = [&](int index, const std::string& text) {
+        SDL_Color color = (selectedOption == index) ? yellow : white;
+        int textWidth = text.length() * (6 * 2);
+        drawString(SCREEN_W / 2 - (textWidth / 2), menuY + (index * 30), text, color, 2);
+    };
+
+    drawOption(0, "START");
+    drawOption(1, "AUTOPILOT");
+    drawOption(2, "QUIT");
+}
+
 void Renderer::drawHUD(int score, int lives, int level, FruitType currentFruit, bool bonusActive) {
     int hudY = MAZE_ROWS * TILE_SIZE + 4;
     SDL_Color white = {255, 255, 255, 255};
@@ -430,6 +525,22 @@ void Renderer::drawRect(int x, int y, int w, int h, SDL_Color color) {
     SDL_SetRenderDrawColor(m_renderer, color.r, color.g, color.b, color.a);
     SDL_Rect rect = {x, y, w, h};
     SDL_RenderFillRect(m_renderer, &rect);
+}
+
+void Renderer::drawTriangle(int x1, int y1, int x2, int y2, int x3, int y3, SDL_Color color) {
+    SDL_SetRenderDrawColor(m_renderer, color.r, color.g, color.b, color.a);
+    SDL_Vertex vertices[3];
+
+    vertices[0].position = {(float)x1, (float)y1};
+    vertices[0].color = color;
+
+    vertices[1].position = {(float)x2, (float)y2};
+    vertices[1].color = color;
+
+    vertices[2].position = {(float)x3, (float)y3};
+    vertices[2].color = color;
+
+    SDL_RenderGeometry(m_renderer, nullptr, vertices, 3, nullptr, 0);
 }
 
 void Renderer::drawCircle(int cx, int cy, int radius, SDL_Color color) {
