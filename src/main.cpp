@@ -23,8 +23,8 @@ int main(int argc, char* argv[]) {
 
     Game game(headless, rlMode, startLevel, rlRender);
 
-    if (!game.init()) {
-        std::cerr << "Failed to initialize game." << std::endl;
+    if (!game.initScreen()) {
+        std::cerr << "Failed to initialize game screen." << std::endl;
         return 1;
     }
 

@@ -188,13 +188,16 @@ Game::~Game() {
     closeLogging();
 }
 
-bool Game::init() {
+bool Game::initScreen() {
     if (!m_headless) {
         if (!m_renderer.init("Pac-Man", SCREEN_W, SCREEN_H)) {
             return false;
         }
     }
+    return true;
+}
 
+bool Game::init() {
     startLevel();
 
     if (m_maze.getTotalPellets() == 0) {
@@ -205,6 +208,7 @@ bool Game::init() {
     if (!m_rlMode) {
         initLogging();
     }
+
     return true;
 }
 
@@ -270,34 +274,70 @@ void Game::processInput() {
         }
 
         if (event.type == SDL_KEYDOWN) {
+
             m_frameEvents.keypresses.push_back(SDL_GetKeyName(event.key.keysym.sym));
 
-            switch (event.key.keysym.sym) {
-                case SDLK_ESCAPE:
-                    m_running = false;
-                    break;
+            if (m_state == GameState::MENU) {
+                switch (event.key.keysym.sym) {
+                    case SDLK_ESCAPE:
+                        m_running = false;
+                        break;
 
-                case SDLK_p:
-                    if (m_state == GameState::PLAYING)
-                        m_state = GameState::PAUSED;
-                    else if (m_state == GameState::PAUSED)
-                        m_state = GameState::PLAYING;
-                    break;
+                    case SDLK_RETURN:
+                        switch (m_menuSelect) {
+                            case 1:
+                                m_rlMode = true;
+                                break;
+                            case 2:
+                                m_running = false;
+                                break;
+                        }
+                        if (!init()) {
+                            std::cerr << "Failed to initialize game." << std::endl;
+                            m_running = false;
+                            return;
+                        }
+                        break;
 
-                case SDLK_RETURN:
-                    if (m_state == GameState::GAME_OVER) {
-                        // Restart
-                        m_score = 0;
-                        m_lives = 3;
-                        m_level = 1;
-                        startLevel();
-                    }
-                    break;
+                    case SDLK_UP:    case SDLK_w:
+                    case SDLK_LEFT:  case SDLK_a:
+                        m_menuSelect--;
+                        if (m_menuSelect < 0) m_menuSelect = 2;
+                        break;
+                    case SDLK_DOWN:  case SDLK_s:
+                    case SDLK_RIGHT: case SDLK_d:
+                        m_menuSelect++;
+                        if (m_menuSelect > 2) m_menuSelect = 0;
+                        break;
+                }
+            } else {
+                switch (event.key.keysym.sym) {
+                    case SDLK_ESCAPE:
+                        m_running = false;
+                        break;
 
-                case SDLK_UP:    case SDLK_w: m_player.handleInput(Direction::UP);    break;
-                case SDLK_DOWN:  case SDLK_s: m_player.handleInput(Direction::DOWN);  break;
-                case SDLK_LEFT:  case SDLK_a: m_player.handleInput(Direction::LEFT);  break;
-                case SDLK_RIGHT: case SDLK_d: m_player.handleInput(Direction::RIGHT); break;
+                    case SDLK_p:
+                        if (m_state == GameState::PLAYING)
+                            m_state = GameState::PAUSED;
+                        else if (m_state == GameState::PAUSED)
+                            m_state = GameState::PLAYING;
+                        break;
+
+                    case SDLK_RETURN:
+                        if (m_state == GameState::GAME_OVER) {
+                            // Restart
+                            m_score = 0;
+                            m_lives = 3;
+                            m_level = 1;
+                            startLevel();
+                        }
+                        break;
+
+                    case SDLK_UP:    case SDLK_w: m_player.handleInput(Direction::UP);    break;
+                    case SDLK_DOWN:  case SDLK_s: m_player.handleInput(Direction::DOWN);  break;
+                    case SDLK_LEFT:  case SDLK_a: m_player.handleInput(Direction::LEFT);  break;
+                    case SDLK_RIGHT: case SDLK_d: m_player.handleInput(Direction::RIGHT); break;
+                }
             }
         }
     }
@@ -382,6 +422,12 @@ void Game::update() {
 void Game::render() {
     if (m_headless) return;
     m_renderer.clear();
+
+    if (m_state == GameState::MENU) {
+        m_renderer.drawTitleScreen(m_menuSelect);
+        m_renderer.present();
+        return;
+    }
 
     m_renderer.drawMaze(m_maze);
     if (m_bonusFruit.active) {
