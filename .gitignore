@@ -27,6 +27,7 @@ __pycache__/
 ### Weights & Biases
 wandb/
 *.wandb
+wandb_models/
 
 ### Editor / OS noise (optional but useful)
 *.swp
