@@ -7,10 +7,15 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <vector>
 #include <climits>
 #include <cstdlib>
 #include <cmath>
+#include <cstdio>
 #include <ctime>
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -152,6 +157,48 @@ int manhattanDistance(GridPos a, GridPos b) {
     return std::abs(a.row - b.row) + std::abs(a.col - b.col);
 }
 
+[[noreturn]] void execAutopilot(int startLevel) {
+#if defined(_WIN32)
+    std::cerr << "Autopilot via ai_play.py is not supported on Windows builds.\n";
+    std::exit(1);
+#else
+    namespace fs = std::filesystem;
+
+    fs::path scriptPath;
+    if (fs::exists("ai_play.py")) {
+        scriptPath = fs::absolute("ai_play.py");
+    } else if (fs::exists(fs::path("..") / "ai_play.py")) {
+        scriptPath = fs::absolute(fs::path("..") / "ai_play.py");
+    } else {
+        std::cerr << "Could not find ai_play.py (expected ./ai_play.py or ../ai_play.py)\n";
+        std::exit(1);
+    }
+
+    const fs::path repoRoot  = scriptPath.parent_path();
+    const fs::path modelPath = repoRoot / "pacman_policy.onnx";
+
+    std::vector<std::string> args;
+    args.emplace_back("python3");
+    args.emplace_back(scriptPath.string());
+    args.emplace_back("--level");
+    args.emplace_back(std::to_string(startLevel));
+    if (fs::exists(modelPath)) {
+        args.emplace_back("--model");
+        args.emplace_back(modelPath.string());
+    }
+
+    std::vector<char*> argv;
+    argv.reserve(args.size() + 1);
+    for (auto& s : args) argv.push_back(s.data());
+    argv.push_back(nullptr);
+
+    ::execvp(argv[0], argv.data());
+    // If execvp returns, it failed.
+    std::perror("execvp");
+    std::exit(1);
+#endif
+}
+
 std::string timestampForFilename() {
     const auto now = std::chrono::system_clock::now();
     const std::time_t nowTime = std::chrono::system_clock::to_time_t(now);
@@ -234,6 +281,13 @@ void Game::startLevel() {
 
 void Game::run() {
     if (m_rlMode) {
+        // RL mode bypasses the menu, so we must initialise the level here.
+        // (Non-RL mode initialises on ENTER from the menu.)
+        if (!init()) {
+            std::cerr << "Failed to initialize game." << std::endl;
+            m_running = false;
+            return;
+        }
         runRL();
         return;
     }
@@ -260,6 +314,23 @@ void Game::processInput() {
     resetFrameEvents();
 
     if (m_rlMode) {
+        // In RL mode, actions come from stdin, but if we're rendering we still need
+        // to pump SDL events so the user can quit (ESC / window close).
+        if (m_rlRender) {
+            SDL_Event event;
+            while (SDL_PollEvent(&event)) {
+                if (event.type == SDL_QUIT) {
+                    m_running = false;
+                    return;
+                }
+                if (event.type == SDL_KEYDOWN) {
+                    if (event.key.keysym.sym == SDLK_ESCAPE) {
+                        m_running = false;
+                        return;
+                    }
+                }
+            }
+        }
         if (m_rlAction != Direction::NONE) {
             m_player.handleInput(m_rlAction);
         }
@@ -285,20 +356,20 @@ void Game::processInput() {
 
                     case SDLK_RETURN:
                         switch (m_menuSelect) {
-                            case 1: // Start
-                                m_rlMode = true;
-                            case 0: // Autopilot
+                            case 0:
                                 if (!init()) {
                                     std::cerr << "Failed to initialize game." << std::endl;
                                     m_running = false;
                                     return;
                                 }
                                 break;
-                            case 2: // Quit
+                            case 1:
+                                // Replace this process with the Python autopilot driver.
+                                execAutopilot(m_startLevel);
+                            case 2:
                                 m_running = false;
-                                break;
+                                return;
                         }
-
                         break;
 
                     case SDLK_UP:    case SDLK_w:
