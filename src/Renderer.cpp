@@ -377,16 +377,26 @@ SDL_Color Renderer::getGhostColor(GhostID id) const {
 }
 
 void Renderer::drawTitleScreen(int selectedOption) {
-    // --- 1. Draw the Logo Plate ---
-    int boxW = 375;
-    int boxH = 93;
-    int boxX = SCREEN_W / 2 - boxW / 2;
+    // --- 1. Dynamic Scaling for Logo Plate ---
+    // Target an exact symmetric 18-pixel gap on each side of the screen
+    int gap = 48;
+    int boxW = SCREEN_W - (gap * 2);
+
+    // Calculate dynamic scale factor based on our previous 400px wide reference design
+    float scale = (float)boxW / 400.0f;
+    int boxH = (int)(93 * scale);
+
+    int boxX = gap; // Centers perfectly by definition
     int boxY = SCREEN_H / 4;
+
+    // Helper lambda to apply our dynamic scale to any coordinate or dimension
+    auto S = [&](float v) { return (int)(v * scale); };
 
     SDL_Color red = {231, 36, 42, 255};
     SDL_Color orange = {240, 134, 37, 255};
     SDL_Color black = {0, 0, 0, 255};
-    SDL_Color yellow = {254, 211, 18, 255};
+    SDL_Color yellow = {254, 251, 18, 255};
+    SDL_Color cyan = {0, 255, 255, 255};
     SDL_Color white = {255, 255, 255, 255};
 
     // Helper lambda to draw a rounded rectangle
@@ -399,71 +409,76 @@ void Renderer::drawTitleScreen(int selectedOption) {
         drawCircle(x + w - r, y + h - r, r, color);
     };
 
-    // Draw Background Plate
-    drawRoundedRect(boxX, boxY, boxW, boxH, 17, red);
-    drawRoundedRect(boxX + 8, boxY + 8, boxW - 16, boxH - 16, 9, orange);
+    // Draw Background Plate (scaled concentric radii)
+    drawRoundedRect(boxX, boxY, boxW, boxH, S(17), red);
+    drawRoundedRect(boxX + S(8), boxY + S(8), boxW - S(16), boxH - S(16), S(9), orange);
 
-    // --- 2. Draw the Logo Text Shapes ---
-    auto drawLogoPass = [&](int offsetX, int offsetY, SDL_Color color) {
-
-        int py = boxY + 16 + offsetY;
+    // --- 2. Draw the Auto-Scaled Logo Text Shapes ---
+    auto drawLogoPass = [&](float offsetX, float offsetY, SDL_Color mainColor, SDL_Color highlightColor) {
+        int py = boxY + S(16 + offsetY);
 
         // P
-        int px = boxX + 16 + offsetX;
-        drawRect(px, py, 21, 55, color);
-        drawRect(px + 14, py, 23, 33, color);
-        drawCircle(px + 33, py + 16, 16, color);
+        int px = boxX + S(16 + offsetX);
+        drawRect(px, py, S(16), S(55), mainColor);
+        drawRect(px + S(14), py, S(23), S(33), mainColor);
+        drawCircle(px + S(33), py + S(16), S(16), mainColor);
 
         // A
-        int ax = boxX + 60 + offsetX;
-        drawTriangle(ax + 24, py, ax, py + 55, ax + 48, py + 55, color);
+        int ax = boxX + S(60 + offsetX);
+        drawTriangle(ax + S(24), py, ax, py + S(55), ax + S(48), py + S(55), mainColor);
 
         // C
-        int cx = boxX + 129 + offsetX;
-        drawCircle(cx, py + 28, 25, color, 0, M_PI / 3.0f);
+        int cx = boxX + S(129 + offsetX);
+        drawCircle(cx, py + S(28), S(25), mainColor, 0, M_PI / 3.0f);
 
         // -
-        int dashX = boxX + 163 + offsetX;
-        drawRect(dashX, py + 23, 28, 11, color);
+        int dashX = boxX + S(163 + offsetX);
+        drawRect(dashX, py + S(23), S(28), S(11), mainColor);
 
         // M
-        int mx = boxX + 199 + offsetX;
-        drawTriangle(mx, py, mx, py + 55, mx + 44, py + 55, color);
-        drawTriangle(mx + 44, py, mx + 44, py + 55, mx, py + 55, color);
+        int mx = boxX + S(199 + offsetX);
+        drawTriangle(mx, py, mx, py + S(55), mx + S(44), py + S(55), mainColor);
+        drawTriangle(mx + S(44), py, mx + S(44), py + S(55), mx, py + S(55), mainColor);
 
-        // A
-        int ax2 = boxX + 251 + offsetX;
-        drawTriangle(ax2 + 24, py, ax2, py + 55, ax2 + 48, py + 55, color);
+        // A (Highlighted)
+        int ax2 = boxX + S(251 + offsetX);
+        drawTriangle(ax2 + S(24), py, ax2, py + S(55), ax2 + S(48), py + S(55), highlightColor);
+
+        // I (Highlighted)
+        int ix = boxX + S(305 + offsetX);
+        drawRect(ix, py, S(16), S(55), highlightColor);
 
         // N
-        int nx = boxX + 305 + offsetX;
-        drawTriangle(nx, py, nx + 44, py + 55, nx, py + 55, color);
-        drawRect(nx + 21, py, 24, 55, color);
+        int nx = boxX + S(330 + offsetX);
+        drawTriangle(nx, py, nx + S(44), py + S(55), nx, py + S(55), mainColor);
+        drawRect(nx + S(21), py, S(24), S(55), mainColor);
     };
 
-    // Render Shadow Pass first, then the Yellow Pass
-    drawLogoPass(9, 6, black);
-    drawLogoPass(0, 0, yellow);
+    // Render Shadow Pass first (+9, +6 scaled), then the Color Pass
+    drawLogoPass(9.0f, 6.0f, black, black);
+    drawLogoPass(0.0f, 0.0f, yellow, cyan);
 
     // --- 3. Draw Small Black Holes for P and A ---
-    int py = boxY + 16;
+    int holeY = boxY + S(16);
 
     // Hole for P
-    drawCircle(boxX + 49, py + 16, 3, black);
+    drawCircle(boxX + S(49), holeY + S(16), S(5), black);
 
     // Hole for first A
-    drawCircle(boxX + 84, py + 35, 4, black);
+    drawCircle(boxX + S(84), holeY + S(35), S(5), black);
 
     // Hole for second A
-    drawCircle(boxX + 275, py + 35, 4, black);
+    drawCircle(boxX + S(275), holeY + S(35), S(5), black);
 
-    // --- 4. Draw Menu Options ---
-    int menuY = SCREEN_H / 2 + 50;
+    // --- 4. Draw Menu Options (Scaled to Size 3) ---
+    // Start options further down to clear the bigger logo
+    int menuY = SCREEN_H / 2 + 60;
 
     auto drawOption = [&](int index, const std::string& text) {
         SDL_Color color = (selectedOption == index) ? yellow : white;
-        int textWidth = text.length() * (6 * 2);
-        drawString(SCREEN_W / 2 - (textWidth / 2), menuY + (index * 30), text, color, 2);
+
+        int textWidth = text.length() * (6 * 3);
+        drawString(SCREEN_W / 2 - (textWidth / 2), menuY + (index * 45), text, color, 3);
     };
 
     drawOption(0, "START");
@@ -494,14 +509,22 @@ void Renderer::drawHUD(int score, int lives, int level, FruitType currentFruit, 
 }
 
 void Renderer::drawPause(void) {
-    int hudY = MAZE_ROWS * TILE_SIZE + 4;
     SDL_Color white = {255, 255, 255, 255};
     SDL_Color black = {0, 0, 0, 127};
 
-    // Overlay
+    // Semi-transparent overlay
     drawRect(0, 0, SCREEN_W, SCREEN_H, black);
-    drawString(SCREEN_W / 2 - 60, SCREEN_H / 2 - 20, "PAUSED", white, 3);
 
+    std::string text = "PAUSED";
+    int scale = 3;
+    int textWidth = text.length() * (6 * scale);
+    int textHeight = 7 * scale;
+
+    int gridHeight = MAZE_ROWS * TILE_SIZE;
+    int textX = SCREEN_W / 2 - (textWidth / 2);
+    int textY = gridHeight / 2 - (textHeight / 2);
+
+    drawString(textX, textY, text, white, scale);
 }
 
 void Renderer::drawGameOver(int finalScore) {
