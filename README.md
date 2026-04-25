@@ -116,11 +116,11 @@ python3 ai_play.py
 
 **Human (user) gameplay**
 
-![Human gameplay](media/user.gif)
+![Human gameplay](gif/user.gif.gif)
 
 **AI (PPO-trained) gameplay**
 
-![PPO-trained agent gameplay](media/ai_trained.gif)
+![PPO-trained agent gameplay](gif/ai.gif)
 
 ## Level File Format
 
