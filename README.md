@@ -1,4 +1,4 @@
-# Pac-Man Retro Port — C++ / SDL2
+# PPO Trained AI Pacman From Scratch
 
 ## Project Structure
 
