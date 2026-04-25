@@ -87,6 +87,41 @@ Ready-countdown frames are skipped. `ghost_mode_phase` advances only after a
 full scatter/chase pair; `ghost_mode_step` advances on each scatter/chase
 segment and is usually the more useful field to model.
 
+## PPO Learning (Reinforcement Learning)
+
+This project also supports training a Pac-Man agent with **PPO (Proximal Policy Optimization)** using **Stable-Baselines3** (`train_ppo.py`).
+
+- **Environment**: `train_ppo.py` wraps the C++ game as a Gymnasium env by launching `build/pacman` in **headless RL mode** and exchanging one JSON message per step over stdin/stdout.
+- **Observation**: a fixed-length vector of **89 floats** (normalized to \([0,1]\)) produced by the game (`state=[...89 floats...]`).
+- **Actions**: 4 discrete actions: `0=UP, 1=DOWN, 2=LEFT, 3=RIGHT`.
+- **Step loop**:
+  - Python sends `{"action": N}` (or `{"reset": true}` to restart an episode)
+  - C++ returns `{"state":[...], "reward":R, "done":B, "lives":L, "score":S}`
+- **Training**: PPO collects rollouts from multiple parallel env processes (`--envs`, default 8), computes advantages with GAE, and performs clipped policy/value updates over minibatches (plus optional W&B/TensorBoard logging).
+- **Export**: after training, the policy is exported to **ONNX** so it can be loaded for inference (`pacman_policy.onnx`).
+
+### Train / Watch
+
+```bash
+# Train PPO (headless envs)
+python3 train_ppo.py --envs 8
+
+# Watch the trained agent play (renders the normal game window)
+python3 ai_play.py
+```
+
+## Demos
+
+> Place the GIFs at the paths below (or update the links if your filenames differ).
+
+**Human (user) gameplay**
+
+![Human gameplay](media/user.gif)
+
+**AI (PPO-trained) gameplay**
+
+![PPO-trained agent gameplay](media/ai_trained.gif)
+
 ## Level File Format
 
 The maze is defined in `levels/level1.txt` using these characters:
